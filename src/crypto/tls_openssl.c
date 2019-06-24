@@ -2149,6 +2149,34 @@ static void openssl_tls_fail_event(struct tls_connection *conn,
 }
 
 
+static int openssl_cert_tod(X509 *cert)
+{
+	CERTIFICATEPOLICIES *ext;
+	stack_index_t i;
+	char buf[100];
+	int res;
+	int tod = 0;
+
+	ext = X509_get_ext_d2i(cert, NID_certificate_policies, NULL, NULL);
+	if (!ext)
+		return 0;
+
+	for (i = 0; i < sk_POLICYINFO_num(ext); i++) {
+		POLICYINFO *policy;
+
+		policy = sk_POLICYINFO_value(ext, i);
+		res = OBJ_obj2txt(buf, sizeof(buf), policy->policyid, 0);
+		if (res < 0 || (size_t) res >= sizeof(buf))
+			continue;
+		wpa_printf(MSG_DEBUG, "OpenSSL: Certificate Policy %s", buf);
+		if (os_strcmp(buf, "1.3.6.1.4.1.40808.1.3.1") == 0)
+			tod = 1;
+	}
+
+	return tod;
+}
+
+
 static void openssl_tls_cert_event(struct tls_connection *conn,
 				   X509 *err_cert, int depth,
 				   const char *subject)
@@ -2240,6 +2268,8 @@ static void openssl_tls_cert_event(struct tls_connection *conn,
 	for (alt = 0; alt < num_altsubject; alt++)
 		ev.peer_cert.altsubject[alt] = altsubject[alt];
 	ev.peer_cert.num_altsubject = num_altsubject;
+
+	ev.peer_cert.tod = openssl_cert_tod(err_cert);
 
 	context->event_cb(context->cb_ctx, TLS_PEER_CERTIFICATE, &ev);
 	wpabuf_free(cert);
@@ -2345,7 +2375,30 @@ static int tls_verify_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	}
 #endif /* CONFIG_SHA256 */
 
+	openssl_tls_cert_event(conn, err_cert, depth, buf);
+
 	if (!preverify_ok) {
+		if (depth > 0) {
+			/* Send cert event for the peer certificate so that
+			 * the upper layers get information about it even if
+			 * validation of a CA certificate fails. */
+			STACK_OF(X509) *chain;
+
+			chain = X509_STORE_CTX_get1_chain(x509_ctx);
+			if (chain && sk_X509_num(chain) > 0) {
+				char buf2[256];
+				X509 *cert;
+
+				cert = sk_X509_value(chain, 0);
+				X509_NAME_oneline(X509_get_subject_name(cert),
+						  buf2, sizeof(buf2));
+
+				openssl_tls_cert_event(conn, cert, 0, buf2);
+			}
+			if (chain)
+				sk_X509_pop_free(chain, X509_free);
+		}
+
 		wpa_printf(MSG_WARNING, "TLS: Certificate verification failed,"
 			   " error %d (%s) depth %d for '%s'", err, err_str,
 			   depth, buf);
@@ -2401,8 +2454,7 @@ static int tls_verify_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
 		openssl_tls_fail_event(conn, err_cert, err, depth, buf,
 				       "Domain mismatch",
 				       TLS_FAIL_DOMAIN_MISMATCH);
-	} else
-		openssl_tls_cert_event(conn, err_cert, depth, buf);
+	}
 
 	if (conn->cert_probe && preverify_ok && depth == 0) {
 		wpa_printf(MSG_DEBUG, "OpenSSL: Reject server certificate "
@@ -2577,9 +2629,23 @@ static int tls_connection_ca_cert(struct tls_data *data,
 				      (const unsigned char **) &ca_cert_blob,
 				      ca_cert_blob_len);
 		if (cert == NULL) {
-			tls_show_errors(MSG_WARNING, __func__,
-					"Failed to parse ca_cert_blob");
-			return -1;
+			BIO *bio = BIO_new_mem_buf(ca_cert_blob,
+						   ca_cert_blob_len);
+
+			if (bio) {
+				cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+				BIO_free(bio);
+			}
+
+			if (!cert) {
+				tls_show_errors(MSG_WARNING, __func__,
+						"Failed to parse ca_cert_blob");
+				return -1;
+			}
+
+			while (ERR_get_error()) {
+				/* Ignore errors from DER conversion. */
+			}
 		}
 
 		if (!X509_STORE_add_cert(SSL_CTX_get_cert_store(ssl_ctx),
@@ -3999,7 +4065,7 @@ int tls_connection_get_eap_fast_key(void *tls_ctx, struct tls_connection *conn,
 				    _out, skip + out_len) == 0) {
 		ret = 0;
 	}
-	os_memset(master_key, 0, sizeof(master_key));
+	forced_memzero(master_key, sizeof(master_key));
 	os_free(rnd);
 	if (ret == 0)
 		os_memcpy(out, _out + skip, out_len);

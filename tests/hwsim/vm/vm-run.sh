@@ -167,11 +167,12 @@ if [ -z $KVM ]; then
 	$KERNEL \
 	     mem=${MEMORY}M \
 	     LOGDIR=$LOGDIR \
-	     virtual-time \
+	     time-travel=inf-cpu \
 	     $A \
 	     root=none hostfs=/ rootfstype=hostfs rootflags=/ \
 	     ssl0=fd:0,fd:1 \
 	     ssl1=fd:100 \
+	     ssl-non-raw \
 	     100<>$LOGDIR/console 2>&1 | \
 	    sed -u '0,/VM has started up/d'
 else

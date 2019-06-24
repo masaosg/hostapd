@@ -376,7 +376,9 @@ enum qca_radiotap_vendor_ids {
  * @QCA_NL80211_VENDOR_SUBCMD_SPECTRAL_SCAN_START: Start spectral scan. The scan
  *	parameters are specified by enum qca_wlan_vendor_attr_spectral_scan.
  *	This returns a cookie (%QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_COOKIE)
- *	identifying the operation in success case.
+ *	identifying the operation in success case. In failure cases an
+ *	error code (%QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_ERROR_CODE)
+ *	describing the reason for the failure is returned.
  *
  * @QCA_NL80211_VENDOR_SUBCMD_SPECTRAL_SCAN_STOP: Stop spectral scan. This uses
  *	a cookie (%QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_COOKIE) from
@@ -558,7 +560,10 @@ enum qca_radiotap_vendor_ids {
  *	resumed or not by the driver/firmware later will be reported to
  *	userspace using the QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_AUTO_RESUMES
  *	flag. The beacon reporting shall be resumed for all the cases except
- *	disconnection case as indicated by setting
+ *	either when userspace sets
+ *	QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_DO_NOT_RESUME flag in the command
+ *	which triggered the current beacon reporting or during any disconnection
+ *	case as indicated by setting
  *	QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_PAUSE_REASON to
  *	QCA_WLAN_VENDOR_BEACON_REPORTING_PAUSE_REASON_DISCONNECTED by the
  *	driver.
@@ -4555,6 +4560,44 @@ enum qca_wlan_vendor_attr_spectral_scan {
 	 * qca_wlan_vendor_attr_spectral_scan_request_type.
 	 */
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_REQUEST_TYPE = 23,
+	/* This specifies the frequency span over which spectral
+	 * scan would be carried out. Its value depends on the
+	 * value of QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_MODE and
+	 * the relation is as follows.
+	 * QCA_WLAN_VENDOR_SPECTRAL_SCAN_MODE_NORMAL
+	 *    Not applicable. Spectral scan would happen in the
+	 *    operating span.
+	 * QCA_WLAN_VENDOR_SPECTRAL_SCAN_MODE_AGILE
+	 *    Center frequency (in MHz) of the span of interest or
+	 *    for convenience, center frequency (in MHz) of any channel
+	 *    in the span of interest. If agile spectral scan is initiated
+	 *    without setting a valid frequency it returns the error code
+	 *    (QCA_WLAN_VENDOR_SPECTRAL_SCAN_ERR_PARAM_NOT_INITIALIZED).
+	 * u32 attribute.
+	 */
+	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CONFIG_FREQUENCY = 24,
+	/* Spectral scan mode. u32 attribute.
+	 * It uses values defined in enum qca_wlan_vendor_spectral_scan_mode.
+	 * If this attribute is not present, it is assumed to be
+	 * normal mode (QCA_WLAN_VENDOR_SPECTRAL_SCAN_MODE_NORMAL).
+	 */
+	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_MODE = 25,
+	/* Spectral scan error code. u32 attribute.
+	 * It uses values defined in enum
+	 * qca_wlan_vendor_spectral_scan_error_code.
+	 * This attribute is included only in failure scenarios.
+	 */
+	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_ERROR_CODE = 26,
+	/* 8-bit unsigned value to enable/disable debug of the
+	 * Spectral DMA ring.
+	 * 1-enable, 0-disable
+	 */
+	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CONFIG_DMA_RING_DEBUG = 27,
+	/* 8-bit unsigned value to enable/disable debug of the
+	 * Spectral DMA buffers.
+	 * 1-enable, 0-disable
+	 */
+	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CONFIG_DMA_BUFFER_DEBUG = 28,
 
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CONFIG_AFTER_LAST,
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CONFIG_MAX =
@@ -4633,6 +4676,8 @@ enum qca_wlan_vendor_attr_spectral_cap {
 	 * u8 attribute.
 	 */
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CAP_DEFAULT_AGC_MAX_GAIN = 10,
+	/* Flag attribute to indicate agile spectral scan capability */
+	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CAP_AGILE_SPECTRAL = 11,
 
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CAP_AFTER_LAST,
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CAP_MAX =
@@ -4649,6 +4694,13 @@ enum qca_wlan_vendor_attr_spectral_scan_status {
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_STATUS_IS_ENABLED = 1,
 	/* Flag attribute to indicate whether spectral scan is in progress*/
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_STATUS_IS_ACTIVE = 2,
+	/* Spectral scan mode. u32 attribute.
+	 * It uses values defined in enum qca_wlan_vendor_spectral_scan_mode.
+	 * If this attribute is not present, normal mode
+	 * (QCA_WLAN_VENDOR_SPECTRAL_SCAN_MODE_NORMAL is assumed to be
+	 * requested.
+	 */
+	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_STATUS_MODE = 3,
 
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_STATUS_AFTER_LAST,
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_STATUS_MAX =
@@ -4671,6 +4723,43 @@ enum qca_wlan_vendor_attr_spectral_scan_request_type {
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_REQUEST_TYPE_SCAN_AND_CONFIG,
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_REQUEST_TYPE_SCAN,
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_REQUEST_TYPE_CONFIG,
+};
+
+/**
+ * qca_wlan_vendor_spectral_scan_mode: Attribute values for
+ * QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_MODE in the vendor subcmd
+ * QCA_NL80211_VENDOR_SUBCMD_SPECTRAL_SCAN_START and
+ * QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_STATUS_MODE in the vendor subcmd
+ * QCA_NL80211_VENDOR_SUBCMD_SPECTRAL_SCAN_GET_STATUS. This represents the
+ * spectral scan modes.
+ * @QCA_WLAN_VENDOR_SPECTRAL_SCAN_MODE_NORMAL: Normal spectral scan:
+ * spectral scan in the current operating span.
+ * @QCA_WLAN_VENDOR_SPECTRAL_SCAN_MODE_AGILE: Agile spectral scan:
+ * spectral scan in the configured agile span.
+ */
+enum qca_wlan_vendor_spectral_scan_mode {
+	QCA_WLAN_VENDOR_SPECTRAL_SCAN_MODE_NORMAL = 0,
+	QCA_WLAN_VENDOR_SPECTRAL_SCAN_MODE_AGILE = 1,
+};
+
+/**
+ * qca_wlan_vendor_spectral_scan_error_code: Attribute values for
+ * QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_ERROR_CODE in the vendor subcmd
+ * QCA_NL80211_VENDOR_SUBCMD_SPECTRAL_SCAN_START.
+ * @QCA_WLAN_VENDOR_SPECTRAL_SCAN_ERR_PARAM_UNSUPPORTED: Changing the value
+ * of a parameter is not supported.
+ * @QCA_WLAN_VENDOR_SPECTRAL_SCAN_ERR_MODE_UNSUPPORTED: Requested spectral scan
+ * mode is not supported.
+ * @QCA_WLAN_VENDOR_SPECTRAL_SCAN_ERR_PARAM_INVALID_VALUE: A parameter
+ * has invalid value.
+ * @QCA_WLAN_VENDOR_SPECTRAL_SCAN_ERR_PARAM_NOT_INITIALIZED: A parameter
+ * is not initialized.
+ */
+enum qca_wlan_vendor_spectral_scan_error_code {
+	QCA_WLAN_VENDOR_SPECTRAL_SCAN_ERR_PARAM_UNSUPPORTED = 0,
+	QCA_WLAN_VENDOR_SPECTRAL_SCAN_ERR_MODE_UNSUPPORTED = 1,
+	QCA_WLAN_VENDOR_SPECTRAL_SCAN_ERR_PARAM_INVALID_VALUE = 2,
+	QCA_WLAN_VENDOR_SPECTRAL_SCAN_ERR_PARAM_NOT_INITIALIZED = 3,
 };
 
 /**
@@ -6947,6 +7036,23 @@ enum qca_wlan_vendor_attr_beacon_reporting_params {
 	 * QCA_WLAN_VENDOR_BEACON_REPORTING_OP_PAUSE. NLA_FLAG attribute.
 	 */
 	QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_AUTO_RESUMES = 12,
+	/* Optionally set by userspace to request the driver not to resume
+	 * beacon reporting after a pause is completed, when the
+	 * QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_OP_TYPE is set to
+	 * QCA_WLAN_VENDOR_BEACON_REPORTING_OP_START. NLA_FLAG attribute.
+	 * If this flag is set, the driver will not resume beacon reporting
+	 * after any pause in beacon reporting is completed. Userspace has to
+	 * send QCA_WLAN_VENDOR_BEACON_REPORTING_OP_START command again in order
+	 * to initiate beacon reporting again. If this flag is set in the recent
+	 * QCA_WLAN_VENDOR_BEACON_REPORTING_OP_START command, then in the
+	 * subsequent QCA_WLAN_VENDOR_BEACON_REPORTING_OP_PAUSE event (if any)
+	 * the QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_AUTO_RESUMES shall not be
+	 * set by the driver. Setting this flag until and unless there is a
+	 * specific need is not recommended as there is a chance of some beacons
+	 * received after pause command and next start command being not
+	 * reported.
+	 */
+	QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_DO_NOT_RESUME = 13,
 
 	/* Keep last */
 	QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_LAST,

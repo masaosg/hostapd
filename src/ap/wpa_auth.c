@@ -934,6 +934,7 @@ static int wpa_try_alt_snonce(struct wpa_state_machine *sm, u8 *data,
 
 	os_memcpy(sm->SNonce, sm->alt_SNonce, WPA_NONCE_LEN);
 	os_memcpy(&sm->PTK, &PTK, sizeof(PTK));
+	forced_memzero(&PTK, sizeof(PTK));
 	sm->PTK_valid = TRUE;
 
 	return 0;
@@ -1406,6 +1407,8 @@ static int wpa_gmk_to_gtk(const u8 *gmk, const char *label, const u8 *addr,
 		ret = -1;
 #endif /* CONFIG_SHA256 */
 #endif /* CONFIG_SHA384 */
+
+	forced_memzero(data, sizeof(data));
 
 	return ret;
 }
@@ -2046,7 +2049,7 @@ SM_STATE(WPA_PTK, INITPMK)
 		sm->Disconnect = TRUE;
 		return;
 	}
-	os_memset(msk, 0, sizeof(msk));
+	forced_memzero(msk, sizeof(msk));
 
 	sm->req_replay_counter_used = 0;
 	/* IEEE 802.11i does not set keyRun to FALSE, but not doing this
@@ -2285,12 +2288,12 @@ int fils_auth_pmk_to_ptk(struct wpa_state_machine *sm, const u8 *pmk,
 		wpa_hexdump(MSG_DEBUG, "FILS+FT: PMKR0Name",
 			    pmk_r0_name, WPA_PMK_NAME_LEN);
 		wpa_ft_store_pmk_fils(sm, pmk_r0, pmk_r0_name);
-		os_memset(fils_ft, 0, sizeof(fils_ft));
+		forced_memzero(fils_ft, sizeof(fils_ft));
 
 		res = wpa_derive_pmk_r1_name(pmk_r0_name, conf->r1_key_holder,
 					     sm->addr, sm->pmk_r1_name,
 					     use_sha384);
-		os_memset(pmk_r0, 0, PMK_LEN_MAX);
+		forced_memzero(pmk_r0, PMK_LEN_MAX);
 		if (res < 0)
 			return -1;
 		wpa_hexdump(MSG_DEBUG, "FILS+FT: PMKR1Name", sm->pmk_r1_name,
@@ -2308,7 +2311,7 @@ int fils_auth_pmk_to_ptk(struct wpa_state_machine *sm, const u8 *pmk,
 			       sm->wpa_key_mgmt, sm->fils_key_auth_sta,
 			       sm->fils_key_auth_ap,
 			       &sm->fils_key_auth_len);
-	os_memset(ick, 0, sizeof(ick));
+	forced_memzero(ick, sizeof(ick));
 
 	/* Store nonces for (Re)Association Request/Response frame processing */
 	os_memcpy(sm->SNonce, snonce, FILS_NONCE_LEN);
@@ -2610,7 +2613,7 @@ int fils_encrypt_assoc(struct wpa_state_machine *sm, u8 *buf,
 	if (pos + wpabuf_len(plain) + AES_BLOCK_SIZE > end) {
 		wpa_printf(MSG_DEBUG,
 			   "FILS: Not enough room for FILS elements");
-		wpabuf_free(plain);
+		wpabuf_clear_free(plain);
 		return -1;
 	}
 
@@ -2620,7 +2623,7 @@ int fils_encrypt_assoc(struct wpa_state_machine *sm, u8 *buf,
 	if (aes_siv_encrypt(sm->PTK.kek, sm->PTK.kek_len,
 			    wpabuf_head(plain), wpabuf_len(plain),
 			    5, aad, aad_len, pos) < 0) {
-		wpabuf_free(plain);
+		wpabuf_clear_free(plain);
 		return -1;
 	}
 
@@ -2628,7 +2631,7 @@ int fils_encrypt_assoc(struct wpa_state_machine *sm, u8 *buf,
 		    "FILS: Encrypted Association Response elements",
 		    pos, AES_BLOCK_SIZE + wpabuf_len(plain));
 	current_len += wpabuf_len(plain) + AES_BLOCK_SIZE;
-	wpabuf_free(plain);
+	wpabuf_clear_free(plain);
 
 	sm->fils_completed = 1;
 
@@ -2682,7 +2685,7 @@ static struct wpabuf * fils_prepare_plainbuf(struct wpa_state_machine *sm,
 		 * of GTK in the BSS.
 		 */
 		if (random_get_bytes(dummy_gtk, gtk_len) < 0) {
-			wpabuf_free(plain);
+			wpabuf_clear_free(plain);
 			return NULL;
 		}
 		gtk = dummy_gtk;
@@ -2709,13 +2712,13 @@ static struct wpabuf * fils_prepare_plainbuf(struct wpa_state_machine *sm,
 		if (wpa_channel_info(sm->wpa_auth, &ci) != 0) {
 			wpa_printf(MSG_WARNING,
 				   "FILS: Failed to get channel info for OCI element");
-			wpabuf_free(plain);
+			wpabuf_clear_free(plain);
 			return NULL;
 		}
 
 		pos = wpabuf_put(plain, OCV_OCI_EXTENDED_LEN);
 		if (ocv_insert_extended_oci(&ci, pos) < 0) {
-			wpabuf_free(plain);
+			wpabuf_clear_free(plain);
 			return NULL;
 		}
 	}
@@ -2778,7 +2781,7 @@ u8 * hostapd_eid_assoc_fils_session(struct wpa_state_machine *sm, u8 *buf,
 
 	wpa_printf(MSG_DEBUG, "%s: plain buf_len: %u", __func__,
 		   (unsigned int) wpabuf_len(plain));
-	wpabuf_free(plain);
+	wpabuf_clear_free(plain);
 	sm->fils_completed = 1;
 	return pos;
 }
@@ -3030,6 +3033,7 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
 	sm->MICVerified = TRUE;
 
 	os_memcpy(&sm->PTK, &PTK, sizeof(PTK));
+	forced_memzero(&PTK, sizeof(PTK));
 	sm->PTK_valid = TRUE;
 }
 

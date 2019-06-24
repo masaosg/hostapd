@@ -232,6 +232,10 @@ struct hostapd_data {
 	struct wps_stat wps_stats;
 #endif /* CONFIG_WPS */
 
+#ifdef CONFIG_MACSEC
+	struct ieee802_1x_kay *kay;
+#endif /* CONFIG_MACSEC */
+
 	struct hostapd_probereq_cb *probereq_cb;
 	size_t num_probereq_cb;
 
@@ -551,6 +555,9 @@ struct hostapd_iface {
 #ifdef CONFIG_AIRTIME_POLICY
 	unsigned int airtime_quantum;
 #endif /* CONFIG_AIRTIME_POLICY */
+
+	/* Previous WMM element information */
+	struct hostapd_wmm_ac_params prev_wmm[WMM_AC_NUM];
 };
 
 /* hostapd.c */

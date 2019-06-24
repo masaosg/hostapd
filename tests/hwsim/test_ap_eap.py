@@ -149,9 +149,10 @@ def eap_connect(dev, hapd, method, identity,
                    expect_cert_error=expect_cert_error)
     if expect_failure:
         return id
-    ev = hapd.wait_event(["AP-STA-CONNECTED"], timeout=5)
-    if ev is None:
-        raise Exception("No connection event received from hostapd")
+    if hapd:
+        ev = hapd.wait_event(["AP-STA-CONNECTED"], timeout=5)
+        if ev is None:
+            raise Exception("No connection event received from hostapd")
     return id
 
 def eap_check_auth(dev, method, initial, rsn=True, sha256=False,
@@ -838,6 +839,47 @@ def _test_ap_wpa2_eap_sim_no_change_set(dev, apdev):
     dev[0].set_network_quoted(id, "identity", "1232010000000000")
     dev[0].set_network_quoted(id, "ssid", "test-wpa2-eap")
     eap_reauth(dev[0], "SIM")
+
+def test_ap_wpa2_eap_sim_ext_anonymous(dev, apdev):
+    """EAP-SIM with external GSM auth and anonymous identity"""
+    check_hlr_auc_gw_support()
+    params = hostapd.wpa2_eap_params(ssid="test-wpa2-eap")
+    hostapd.add_ap(apdev[0], params)
+    try:
+        run_ap_wpa2_eap_sim_ext_anonymous(dev, "anonymous@example.org")
+        run_ap_wpa2_eap_sim_ext_anonymous(dev, "@example.org")
+    finally:
+        dev[0].request("SET external_sim 0")
+
+def run_ap_wpa2_eap_sim_ext_anonymous(dev, anon):
+    dev[0].request("SET external_sim 1")
+    id = dev[0].connect("test-wpa2-eap", eap="SIM", key_mgmt="WPA-EAP",
+                        identity="1232010000000000",
+                        anonymous_identity=anon,
+                        wait_connect=False, scan_freq="2412")
+
+    ev = dev[0].wait_event(["CTRL-REQ-SIM"], timeout=15)
+    if ev is None:
+        raise Exception("Wait for external SIM processing request timed out")
+    p = ev.split(':', 2)
+    if p[1] != "GSM-AUTH":
+        raise Exception("Unexpected CTRL-REQ-SIM type")
+    rid = p[0].split('-')[3]
+    rand = p[2].split(' ')[0]
+
+    res = subprocess.check_output(["../../hostapd/hlr_auc_gw",
+                                   "-m",
+                                   "auth_serv/hlr_auc_gw.milenage_db",
+                                   "GSM-AUTH-REQ 232010000000000 " + rand]).decode()
+    if "GSM-AUTH-RESP" not in res:
+        raise Exception("Unexpected hlr_auc_gw response")
+    resp = res.split(' ')[2].rstrip()
+
+    dev[0].request("CTRL-RSP-SIM-" + rid + ":GSM-AUTH:" + resp)
+    dev[0].wait_connected(timeout=5)
+    dev[0].request("REMOVE_NETWORK all")
+    dev[0].wait_disconnected()
+    dev[0].dump_monitor()
 
 def test_ap_wpa2_eap_sim_oom(dev, apdev):
     """EAP-SIM and OOM"""
@@ -2197,11 +2239,32 @@ def test_ap_wpa2_eap_tls_pkcs12(dev, apdev):
 
 def test_ap_wpa2_eap_tls_pkcs12_blob(dev, apdev):
     """WPA2-Enterprise connection using EAP-TLS and PKCS#12 from configuration blob"""
+    cert = read_pem("auth_serv/ca.pem")
+    cacert = binascii.hexlify(cert).decode()
+    run_ap_wpa2_eap_tls_pkcs12_blob(dev, apdev, cacert)
+
+def test_ap_wpa2_eap_tls_pkcs12_blob_pem(dev, apdev):
+    """WPA2-Enterprise connection using EAP-TLS and PKCS#12 from configuration blob and PEM ca_cert blob"""
+    with open("auth_serv/ca.pem", "r") as f:
+        lines = f.readlines()
+        copy = False
+        cert = ""
+        for l in lines:
+            if "-----BEGIN" in l:
+                copy = True
+            if copy:
+                cert += l
+            if "-----END" in l:
+                copy = False
+                break
+    cacert = binascii.hexlify(cert.encode()).decode()
+    run_ap_wpa2_eap_tls_pkcs12_blob(dev, apdev, cacert)
+
+def run_ap_wpa2_eap_tls_pkcs12_blob(dev, apdev, cacert):
     check_pkcs12_support(dev[0])
     params = hostapd.wpa2_eap_params(ssid="test-wpa2-eap")
     hapd = hostapd.add_ap(apdev[0], params)
-    cert = read_pem("auth_serv/ca.pem")
-    if "OK" not in dev[0].request("SET blob cacert " + binascii.hexlify(cert).decode()):
+    if "OK" not in dev[0].request("SET blob cacert " + cacert):
         raise Exception("Could not set cacert blob")
     with open("auth_serv/user.pkcs12", "rb") as f:
         if "OK" not in dev[0].request("SET blob pkcs12 " + binascii.hexlify(f.read()).decode()):
@@ -6545,7 +6608,12 @@ def test_ap_wpa2_eap_status(dev, apdev):
     decisions = []
     req_methods = []
     selected_methods = []
+    connected = False
     for i in range(100000):
+        if not connected and i % 10 == 9:
+            ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED"], timeout=0.0001)
+            if ev:
+                connected = True
         s = dev[0].get_status(extra="VERBOSE")
         if 'EAP state' in s:
             state = s['EAP state']
@@ -6579,7 +6647,8 @@ def test_ap_wpa2_eap_status(dev, apdev):
     logger.info("selectedMethods: " + str(selected_methods))
     if not success:
         raise Exception("EAP did not succeed")
-    dev[0].wait_connected()
+    if not connected:
+        dev[0].wait_connected()
     dev[0].request("REMOVE_NETWORK all")
     dev[0].wait_disconnected()
 
@@ -6771,3 +6840,32 @@ def run_openssl_systemwide_policy(iface, apdev, test_params):
     wpas.wait_connected()
 
     wpas.request("TERMINATE")
+
+def test_ap_wpa2_eap_tls_tod(dev, apdev):
+    """EAP-TLS server certificate validation and TOD"""
+    params = int_eap_server_params()
+    params["server_cert"] = "auth_serv/server-certpol.pem"
+    params["private_key"] = "auth_serv/server-certpol.key"
+    hapd = hostapd.add_ap(apdev[0], params)
+
+    dev[0].connect("test-wpa2-eap", key_mgmt="WPA-EAP",
+                   eap="TLS", identity="tls user",
+                   wait_connect=False, scan_freq="2412",
+                   ca_cert="auth_serv/ca.pem",
+                   client_cert="auth_serv/user.pem",
+                   private_key="auth_serv/user.key")
+    tod0 = None
+    tod1 = None
+    while tod0 is None or tod1 is None:
+        ev = dev[0].wait_event(["CTRL-EVENT-EAP-PEER-CERT"], timeout=10)
+        if ev is None:
+            raise Exception("Peer certificate not reported")
+        if "depth=1 " in ev and "hash=" in ev:
+            tod1 = " tod=1" in ev
+        if "depth=0 " in ev and "hash=" in ev:
+            tod0 = " tod=1" in ev
+    dev[0].wait_connected()
+    if not tod0:
+        raise Exception("TOD policy not reported for server certificate")
+    if tod1:
+        raise Exception("TOD policy unexpectedly reported for CA certificate")

@@ -2240,8 +2240,8 @@ static const struct parse_data ssid_fields[] = {
 	{ INT_RANGE(ht, 0, 1) },
 	{ INT_RANGE(vht, 0, 1) },
 	{ INT_RANGE(ht40, -1, 1) },
-	{ INT_RANGE(max_oper_chwidth, VHT_CHANWIDTH_USE_HT,
-		    VHT_CHANWIDTH_80P80MHZ) },
+	{ INT_RANGE(max_oper_chwidth, CHANWIDTH_USE_HT,
+		    CHANWIDTH_80P80MHZ) },
 	{ INT(vht_center_freq1) },
 	{ INT(vht_center_freq2) },
 #ifdef IEEE8021X_EAPOL
@@ -4869,6 +4869,9 @@ static const struct global_parse_data global_fields[] = {
 	{ INT_RANGE(gas_rand_mac_addr, 0, 2), 0 },
 	{ INT_RANGE(dpp_config_processing, 0, 2), 0 },
 	{ INT_RANGE(coloc_intf_reporting, 0, 1), 0 },
+#ifdef CONFIG_WNM
+	{ INT_RANGE(disable_btm, 0, 1), CFG_CHANGED_DISABLE_BTM },
+#endif /* CONFIG_WNM */
 };
 
 #undef FUNC

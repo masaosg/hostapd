@@ -1711,7 +1711,8 @@ static void wpas_ext_capab_byte(struct wpa_supplicant *wpa_s, u8 *pos, int idx)
 	case 2: /* Bits 16-23 */
 #ifdef CONFIG_WNM
 		*pos |= 0x02; /* Bit 17 - WNM-Sleep Mode */
-		*pos |= 0x08; /* Bit 19 - BSS Transition */
+		if (!wpa_s->conf->disable_btm)
+			*pos |= 0x08; /* Bit 19 - BSS Transition */
 #endif /* CONFIG_WNM */
 		break;
 	case 3: /* Bits 24-31 */
@@ -2065,7 +2066,7 @@ void wpa_supplicant_associate(struct wpa_supplicant *wpa_s,
 #endif /* CONFIG_TDLS */
 
 	if ((wpa_s->drv_flags & WPA_DRIVER_FLAGS_SME) &&
-	    ssid->mode == IEEE80211_MODE_INFRA) {
+	    ssid->mode == WPAS_MODE_INFRA) {
 		sme_authenticate(wpa_s, bss, ssid);
 		return;
 	}
@@ -2139,6 +2140,7 @@ void ibss_mesh_setup_freq(struct wpa_supplicant *wpa_s,
 			  const struct wpa_ssid *ssid,
 			  struct hostapd_freq_params *freq)
 {
+	int ieee80211_mode = wpas_mode_to_ieee80211_mode(ssid->mode);
 	enum hostapd_hw_mode hw_mode;
 	struct hostapd_hw_modes *mode = NULL;
 	int ht40plus[] = { 36, 44, 52, 60, 100, 108, 116, 124, 132, 149, 157,
@@ -2201,6 +2203,9 @@ void ibss_mesh_setup_freq(struct wpa_supplicant *wpa_s,
 
 	if (!mode)
 		return;
+
+	/* HE can work without HT + VHT */
+	freq->he_enabled = mode->he_capab[ieee80211_mode].he_supported;
 
 #ifdef CONFIG_HT_OVERRIDES
 	if (ssid->disable_ht) {
@@ -2355,11 +2360,11 @@ skip_ht40:
 			return;
 	}
 
-	chwidth = VHT_CHANWIDTH_80MHZ;
+	chwidth = CHANWIDTH_80MHZ;
 	seg0 = vht80[j] + 6;
 	seg1 = 0;
 
-	if (ssid->max_oper_chwidth == VHT_CHANWIDTH_80P80MHZ) {
+	if (ssid->max_oper_chwidth == CHANWIDTH_80P80MHZ) {
 		/* setup center_freq2, bandwidth */
 		for (k = 0; k < ARRAY_SIZE(vht80); k++) {
 			/* Only accept 80 MHz segments separated by a gap */
@@ -2378,27 +2383,27 @@ skip_ht40:
 					continue;
 
 				/* Found a suitable second segment for 80+80 */
-				chwidth = VHT_CHANWIDTH_80P80MHZ;
+				chwidth = CHANWIDTH_80P80MHZ;
 				vht_caps |=
 					VHT_CAP_SUPP_CHAN_WIDTH_160_80PLUS80MHZ;
 				seg1 = vht80[k] + 6;
 			}
 
-			if (chwidth == VHT_CHANWIDTH_80P80MHZ)
+			if (chwidth == CHANWIDTH_80P80MHZ)
 				break;
 		}
-	} else if (ssid->max_oper_chwidth == VHT_CHANWIDTH_160MHZ) {
+	} else if (ssid->max_oper_chwidth == CHANWIDTH_160MHZ) {
 		if (freq->freq == 5180) {
-			chwidth = VHT_CHANWIDTH_160MHZ;
+			chwidth = CHANWIDTH_160MHZ;
 			vht_caps |= VHT_CAP_SUPP_CHAN_WIDTH_160MHZ;
 			seg0 = 50;
 		} else if (freq->freq == 5520) {
-			chwidth = VHT_CHANWIDTH_160MHZ;
+			chwidth = CHANWIDTH_160MHZ;
 			vht_caps |= VHT_CAP_SUPP_CHAN_WIDTH_160MHZ;
 			seg0 = 114;
 		}
-	} else if (ssid->max_oper_chwidth == VHT_CHANWIDTH_USE_HT) {
-		chwidth = VHT_CHANWIDTH_USE_HT;
+	} else if (ssid->max_oper_chwidth == CHANWIDTH_USE_HT) {
+		chwidth = CHANWIDTH_USE_HT;
 		seg0 = vht80[j] + 2;
 #ifdef CONFIG_HT_OVERRIDES
 		if (ssid->disable_ht40)
@@ -2408,9 +2413,10 @@ skip_ht40:
 
 	if (hostapd_set_freq_params(&vht_freq, mode->mode, freq->freq,
 				    freq->channel, freq->ht_enabled,
-				    vht_freq.vht_enabled,
+				    vht_freq.vht_enabled, freq->he_enabled,
 				    freq->sec_channel_offset,
-				    chwidth, seg0, seg1, vht_caps) != 0)
+				    chwidth, seg0, seg1, vht_caps,
+				    &mode->he_capab[ieee80211_mode]) != 0)
 		return;
 
 	*freq = vht_freq;
@@ -4231,7 +4237,7 @@ void wpa_supplicant_rx_eapol(void *ctx, const u8 *src_addr,
 	     !wpa_key_mgmt_wpa_psk(wpa_s->key_mgmt) ||
 	     wpa_s->wpa_state != WPA_COMPLETED) &&
 	    (wpa_s->current_ssid == NULL ||
-	     wpa_s->current_ssid->mode != IEEE80211_MODE_IBSS)) {
+	     wpa_s->current_ssid->mode != WPAS_MODE_IBSS)) {
 		/* Timeout for completing IEEE 802.1X and WPA authentication */
 		int timeout = 10;
 
@@ -6629,6 +6635,9 @@ void wpa_supplicant_update_config(struct wpa_supplicant *wpa_s)
 				   "Failed to update wowlan_triggers to '%s'",
 				   wpa_s->conf->wowlan_triggers);
 	}
+
+	if (wpa_s->conf->changed_parameters & CFG_CHANGED_DISABLE_BTM)
+		wpa_supplicant_set_default_scan_ies(wpa_s);
 
 #ifdef CONFIG_WPS
 	wpas_wps_update_config(wpa_s);

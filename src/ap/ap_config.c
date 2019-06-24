@@ -13,6 +13,7 @@
 #include "crypto/tls.h"
 #include "radius/radius_client.h"
 #include "common/ieee802_11_defs.h"
+#include "common/ieee802_1x_defs.h"
 #include "common/eapol_common.h"
 #include "common/dhcp.h"
 #include "eap_common/eap_wsc_common.h"
@@ -139,6 +140,11 @@ void hostapd_config_defaults_bss(struct hostapd_bss_config *bss)
 	bss->hs20_release = (HS20_VERSION >> 4) + 1;
 #endif /* CONFIG_HS20 */
 
+#ifdef CONFIG_MACSEC
+	bss->mka_priority = DEFAULT_PRIO_NOT_KEY_SERVER;
+	bss->macsec_port = 1;
+#endif /* CONFIG_MACSEC */
+
 	/* Default to strict CRL checking. */
 	bss->check_crl_strict = 1;
 }
@@ -240,6 +246,8 @@ struct hostapd_config * hostapd_config_defaults(void)
 #ifdef CONFIG_IEEE80211AX
 	conf->he_op.he_rts_threshold = HE_OPERATION_RTS_THRESHOLD_MASK >>
 		HE_OPERATION_RTS_THRESHOLD_OFFSET;
+	/* Set default basic MCS/NSS set to single stream MCS 0-7 */
+	conf->he_op.he_basic_mcs_nss_set = 0xfffc;
 #endif /* CONFIG_IEEE80211AX */
 
 	/* The third octet of the country string uses an ASCII space character
@@ -585,6 +593,10 @@ static void hostapd_dpp_controller_conf_free(struct dpp_controller_conf *conf)
 
 void hostapd_config_free_bss(struct hostapd_bss_config *conf)
 {
+#if defined(CONFIG_WPS) || defined(CONFIG_HS20)
+	size_t i;
+#endif
+
 	if (conf == NULL)
 		return;
 
@@ -677,12 +689,8 @@ void hostapd_config_free_bss(struct hostapd_bss_config *conf)
 	os_free(conf->model_description);
 	os_free(conf->model_url);
 	os_free(conf->upc);
-	{
-		unsigned int i;
-
-		for (i = 0; i < MAX_WPS_VENDOR_EXTENSIONS; i++)
-			wpabuf_free(conf->wps_vendor_ext[i]);
-	}
+	for (i = 0; i < MAX_WPS_VENDOR_EXTENSIONS; i++)
+		wpabuf_free(conf->wps_vendor_ext[i]);
 	wpabuf_free(conf->wps_nfc_dh_pubkey);
 	wpabuf_free(conf->wps_nfc_dh_privkey);
 	wpabuf_free(conf->wps_nfc_dev_pw);
@@ -708,7 +716,6 @@ void hostapd_config_free_bss(struct hostapd_bss_config *conf)
 	os_free(conf->hs20_operating_class);
 	os_free(conf->hs20_icons);
 	if (conf->hs20_osu_providers) {
-		size_t i;
 		for (i = 0; i < conf->hs20_osu_providers_count; i++) {
 			struct hs20_osu_provider *p;
 			size_t j;
@@ -726,8 +733,6 @@ void hostapd_config_free_bss(struct hostapd_bss_config *conf)
 		os_free(conf->hs20_osu_providers);
 	}
 	if (conf->hs20_operator_icon) {
-		size_t i;
-
 		for (i = 0; i < conf->hs20_operator_icon_count; i++)
 			os_free(conf->hs20_operator_icon[i]);
 		os_free(conf->hs20_operator_icon);
