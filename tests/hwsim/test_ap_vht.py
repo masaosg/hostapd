@@ -82,10 +82,7 @@ def test_ap_vht80(dev, apdev):
         raise
     finally:
         dev[0].request("DISCONNECT")
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
+        clear_regdom(hapd, dev)
 
 def test_ap_vht_wifi_generation(dev, apdev):
     """VHT and wifi_generation"""
@@ -129,10 +126,7 @@ def test_ap_vht_wifi_generation(dev, apdev):
         raise
     finally:
         dev[0].request("DISCONNECT")
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
+        clear_regdom(hapd, dev)
 
 def vht80_test(apdev, dev, channel, ht_capab):
     clear_scan_cache(apdev)
@@ -245,10 +239,7 @@ def test_ap_vht80_invalid(dev, apdev):
                 raise HwsimSkip("80/160 MHz channel not supported in regulatory information")
         raise
     finally:
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        time.sleep(0.1)
+        clear_regdom(hapd, dev)
 
 def test_ap_vht80_invalid2(dev, apdev):
     """VHT with invalid 80 MHz channel configuration (seg0)"""
@@ -276,10 +267,7 @@ def test_ap_vht80_invalid2(dev, apdev):
                 raise HwsimSkip("80/160 MHz channel not supported in regulatory information")
         raise
     finally:
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        time.sleep(0.1)
+        clear_regdom(hapd, dev)
 
 def test_ap_vht_20(devs, apdevs):
     """VHT and 20 MHz channel"""
@@ -304,10 +292,7 @@ def test_ap_vht_20(devs, apdevs):
         hwsim_utils.test_connectivity(dev, hapd)
     finally:
         dev.request("DISCONNECT")
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev.flush_scan_cache()
+        clear_regdom(hapd, devs)
 
 def test_ap_vht_40(devs, apdevs):
     """VHT and 40 MHz channel"""
@@ -330,10 +315,7 @@ def test_ap_vht_40(devs, apdevs):
         hwsim_utils.test_connectivity(dev, hapd)
     finally:
         dev.request("DISCONNECT")
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev.flush_scan_cache()
+        clear_regdom(hapd, devs)
 
 def test_ap_vht_capab_not_supported(dev, apdev):
     """VHT configuration with driver not supporting all vht_capab entries"""
@@ -609,10 +591,7 @@ def test_ap_vht160_no_ht40(dev, apdev):
                 raise HwsimSkip("80/160 MHz channel not supported in regulatory information")
         raise
     finally:
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        time.sleep(0.1)
+        clear_regdom(hapd, dev)
 
 def test_ap_vht80plus80(dev, apdev):
     """VHT with 80+80 MHz channel width"""
@@ -713,10 +692,7 @@ def test_ap_vht80plus80_invalid(dev, apdev):
                 raise HwsimSkip("80/160 MHz channel not supported in regulatory information")
         raise
     finally:
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        time.sleep(0.1)
+        clear_regdom(hapd, dev)
 
 def test_ap_vht80_csa(dev, apdev):
     """VHT with 80 MHz channel width and CSA"""
@@ -776,10 +752,7 @@ def test_ap_vht80_csa(dev, apdev):
         raise
     finally:
         dev[0].request("DISCONNECT")
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
+        clear_regdom(hapd, dev)
 
 def test_ap_vht_csa_vht40(dev, apdev):
     """VHT CSA with VHT40 getting enabled"""
@@ -989,10 +962,9 @@ def test_prefer_vht40(dev, apdev):
             raise Exception("Unexpected BSS1 est_throughput: " + est)
     finally:
         dev[0].request("DISCONNECT")
-        if hapd2:
-            hapd2.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
+        disable_hapd(hapd)
+        disable_hapd(hapd2)
+        clear_regdom_dev(dev)
 
 def test_ap_vht80_pwr_constraint(dev, apdev):
     """VHT with 80 MHz channel width and local power constraint"""
@@ -1095,10 +1067,7 @@ def test_ap_vht_tkip(dev, apdev):
         raise
     finally:
         dev[0].request("DISCONNECT")
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
+        clear_regdom(hapd, dev)
 
 def test_ap_vht_40_fallback_to_20(devs, apdevs):
     """VHT and 40 MHz channel configuration falling back to 20 MHz"""
@@ -1124,12 +1093,7 @@ def test_ap_vht_40_fallback_to_20(devs, apdevs):
         dev.wait_regdom(country_ie=True)
         hwsim_utils.test_connectivity(dev, hapd)
     finally:
-        if hapd:
-            hapd.request("DISABLE")
-        dev.disconnect_and_stop_scan()
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev.wait_event(["CTRL-EVENT-REGDOM-CHANGE"], timeout=0.5)
-        dev.flush_scan_cache()
+        clear_regdom(hapd, devs)
 
 def test_ap_vht80_to_24g_ht(dev, apdev):
     """VHT with 80 MHz channel width reconfigured to 2.4 GHz HT"""
@@ -1164,7 +1128,4 @@ def test_ap_vht80_to_24g_ht(dev, apdev):
         raise
     finally:
         dev[0].request("DISCONNECT")
-        if hapd:
-            hapd.request("DISABLE")
-        subprocess.call(['iw', 'reg', 'set', '00'])
-        dev[0].flush_scan_cache()
+        clear_regdom(hapd, dev)
