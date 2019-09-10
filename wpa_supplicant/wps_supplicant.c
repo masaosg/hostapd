@@ -533,9 +533,7 @@ static int wpa_supplicant_wps_cred(void *ctx,
 		if (wpa_s->conf->wps_cred_add_sae &&
 		    cred->key_len != 2 * PMK_LEN) {
 			ssid->key_mgmt |= WPA_KEY_MGMT_SAE;
-#ifdef CONFIG_IEEE80211W
 			ssid->ieee80211w = MGMT_FRAME_PROTECTION_OPTIONAL;
-#endif /* CONFIG_IEEE80211W */
 		}
 		ssid->proto = WPA_PROTO_RSN;
 		break;
@@ -2232,6 +2230,16 @@ void wpas_wps_update_config(struct wpa_supplicant *wpa_s)
 		wps->dev.model_number = wpa_s->conf->model_number;
 		wps->dev.serial_number = wpa_s->conf->serial_number;
 	}
+}
+
+
+void wpas_wps_update_mac_addr(struct wpa_supplicant *wpa_s)
+{
+	struct wps_context *wps;
+
+	wps = wpa_s->wps;
+	if (wps)
+		os_memcpy(wps->dev.mac_addr, wpa_s->own_addr, ETH_ALEN);
 }
 
 

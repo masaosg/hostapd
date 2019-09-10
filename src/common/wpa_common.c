@@ -212,11 +212,9 @@ int wpa_eapol_key_mic(const u8 *key, size_t key_len, int akmp, int ver,
 			return -1;
 		os_memcpy(mic, hash, MD5_MAC_LEN);
 		break;
-#if defined(CONFIG_IEEE80211R) || defined(CONFIG_IEEE80211W)
 	case WPA_KEY_INFO_TYPE_AES_128_CMAC:
 		wpa_printf(MSG_DEBUG, "WPA: EAPOL-Key MIC using AES-CMAC");
 		return omac1_aes_128(key, buf, len, mic);
-#endif /* CONFIG_IEEE80211R || CONFIG_IEEE80211W */
 	case WPA_KEY_INFO_TYPE_AKM_DEFINED:
 		switch (akmp) {
 #ifdef CONFIG_SAE
@@ -410,14 +408,10 @@ int wpa_pmk_to_ptk(const u8 *pmk, size_t pmk_len, const char *label,
 		return -1;
 #endif /* CONFIG_SUITEB192 || CONFIG_FILS */
 	} else if (wpa_key_mgmt_sha256(akmp) || akmp == WPA_KEY_MGMT_OWE) {
-#if defined(CONFIG_IEEE80211W) || defined(CONFIG_SAE) || defined(CONFIG_FILS)
 		wpa_printf(MSG_DEBUG, "WPA: PTK derivation using PRF(SHA256)");
 		if (sha256_prf(pmk, pmk_len, label, data, data_len,
 			       tmp, ptk_len) < 0)
 			return -1;
-#else /* CONFIG_IEEE80211W or CONFIG_SAE or CONFIG_FILS */
-		return -1;
-#endif /* CONFIG_IEEE80211W or CONFIG_SAE or CONFIG_FILS */
 #ifdef CONFIG_DPP
 	} else if (akmp == WPA_KEY_MGMT_DPP && pmk_len == 32) {
 		wpa_printf(MSG_DEBUG, "WPA: PTK derivation using PRF(SHA256)");
@@ -892,12 +886,10 @@ static int wpa_ft_parse_ftie(const u8 *ie, size_t ie_len,
 			parse->r0kh_id = pos;
 			parse->r0kh_id_len = len;
 			break;
-#ifdef CONFIG_IEEE80211W
 		case FTIE_SUBELEM_IGTK:
 			parse->igtk = pos;
 			parse->igtk_len = len;
 			break;
-#endif /* CONFIG_IEEE80211W */
 #ifdef CONFIG_OCV
 		case FTIE_SUBELEM_OCI:
 			parse->oci = pos;
@@ -958,6 +950,7 @@ int wpa_ft_parse_ies(const u8 *ies, size_t ies_len,
 					   "RSN IE: %d", ret);
 				return -1;
 			}
+			parse->rsn_capab = data.capabilities;
 			if (data.num_pmkid == 1 && data.pmkid)
 				parse->rsn_pmkid = data.pmkid;
 			parse->key_mgmt = data.key_mgmt;
@@ -989,9 +982,11 @@ int wpa_ft_parse_ies(const u8 *ies, size_t ies_len,
 				wpa_hexdump(MSG_DEBUG, "FT: FTE-MIC",
 					    ftie_sha384->mic,
 					    sizeof(ftie_sha384->mic));
+				parse->fte_anonce = ftie_sha384->anonce;
 				wpa_hexdump(MSG_DEBUG, "FT: FTE-ANonce",
 					    ftie_sha384->anonce,
 					    WPA_NONCE_LEN);
+				parse->fte_snonce = ftie_sha384->snonce;
 				wpa_hexdump(MSG_DEBUG, "FT: FTE-SNonce",
 					    ftie_sha384->snonce,
 					    WPA_NONCE_LEN);
@@ -1008,8 +1003,10 @@ int wpa_ft_parse_ies(const u8 *ies, size_t ies_len,
 				    ftie->mic_control, 2);
 			wpa_hexdump(MSG_DEBUG, "FT: FTE-MIC",
 				    ftie->mic, sizeof(ftie->mic));
+			parse->fte_anonce = ftie->anonce;
 			wpa_hexdump(MSG_DEBUG, "FT: FTE-ANonce",
 				    ftie->anonce, WPA_NONCE_LEN);
+			parse->fte_snonce = ftie->snonce;
 			wpa_hexdump(MSG_DEBUG, "FT: FTE-SNonce",
 				    ftie->snonce, WPA_NONCE_LEN);
 			prot_ie_count = ftie->mic_control[1];
@@ -1087,10 +1084,8 @@ static int rsn_selector_to_bitfield(const u8 *s)
 		return WPA_CIPHER_TKIP;
 	if (RSN_SELECTOR_GET(s) == RSN_CIPHER_SUITE_CCMP)
 		return WPA_CIPHER_CCMP;
-#ifdef CONFIG_IEEE80211W
 	if (RSN_SELECTOR_GET(s) == RSN_CIPHER_SUITE_AES_128_CMAC)
 		return WPA_CIPHER_AES_128_CMAC;
-#endif /* CONFIG_IEEE80211W */
 	if (RSN_SELECTOR_GET(s) == RSN_CIPHER_SUITE_GCMP)
 		return WPA_CIPHER_GCMP;
 	if (RSN_SELECTOR_GET(s) == RSN_CIPHER_SUITE_CCMP_256)
@@ -1125,12 +1120,10 @@ static int rsn_key_mgmt_to_bitfield(const u8 *s)
 		return WPA_KEY_MGMT_FT_IEEE8021X_SHA384;
 #endif /* CONFIG_SHA384 */
 #endif /* CONFIG_IEEE80211R */
-#ifdef CONFIG_IEEE80211W
 	if (RSN_SELECTOR_GET(s) == RSN_AUTH_KEY_MGMT_802_1X_SHA256)
 		return WPA_KEY_MGMT_IEEE8021X_SHA256;
 	if (RSN_SELECTOR_GET(s) == RSN_AUTH_KEY_MGMT_PSK_SHA256)
 		return WPA_KEY_MGMT_PSK_SHA256;
-#endif /* CONFIG_IEEE80211W */
 #ifdef CONFIG_SAE
 	if (RSN_SELECTOR_GET(s) == RSN_AUTH_KEY_MGMT_SAE)
 		return WPA_KEY_MGMT_SAE;
@@ -1170,7 +1163,6 @@ int wpa_cipher_valid_group(int cipher)
 }
 
 
-#ifdef CONFIG_IEEE80211W
 int wpa_cipher_valid_mgmt_group(int cipher)
 {
 	return cipher == WPA_CIPHER_AES_128_CMAC ||
@@ -1178,7 +1170,6 @@ int wpa_cipher_valid_mgmt_group(int cipher)
 		cipher == WPA_CIPHER_BIP_GMAC_256 ||
 		cipher == WPA_CIPHER_BIP_CMAC_256;
 }
-#endif /* CONFIG_IEEE80211W */
 
 
 /**
@@ -1203,11 +1194,7 @@ int wpa_parse_wpa_ie_rsn(const u8 *rsn_ie, size_t rsn_ie_len,
 	data->capabilities = 0;
 	data->pmkid = NULL;
 	data->num_pmkid = 0;
-#ifdef CONFIG_IEEE80211W
 	data->mgmt_group_cipher = WPA_CIPHER_AES_128_CMAC;
-#else /* CONFIG_IEEE80211W */
-	data->mgmt_group_cipher = 0;
-#endif /* CONFIG_IEEE80211W */
 
 	if (rsn_ie_len == 0) {
 		/* No RSN IE - fail silently */
@@ -1282,13 +1269,11 @@ int wpa_parse_wpa_ie_rsn(const u8 *rsn_ie, size_t rsn_ie_len,
 			pos += RSN_SELECTOR_LEN;
 			left -= RSN_SELECTOR_LEN;
 		}
-#ifdef CONFIG_IEEE80211W
 		if (data->pairwise_cipher & WPA_CIPHER_AES_128_CMAC) {
 			wpa_printf(MSG_DEBUG, "%s: AES-128-CMAC used as "
 				   "pairwise cipher", __func__);
 			return -1;
 		}
-#endif /* CONFIG_IEEE80211W */
 	} else if (left == 1) {
 		wpa_printf(MSG_DEBUG, "%s: ie too short (for key mgmt)",
 			   __func__);
@@ -1340,7 +1325,6 @@ int wpa_parse_wpa_ie_rsn(const u8 *rsn_ie, size_t rsn_ie_len,
 		}
 	}
 
-#ifdef CONFIG_IEEE80211W
 	if (left >= 4) {
 		data->mgmt_group_cipher = rsn_selector_to_bitfield(pos);
 		if (!wpa_cipher_valid_mgmt_group(data->mgmt_group_cipher)) {
@@ -1353,7 +1337,6 @@ int wpa_parse_wpa_ie_rsn(const u8 *rsn_ie, size_t rsn_ie_len,
 		pos += RSN_SELECTOR_LEN;
 		left -= RSN_SELECTOR_LEN;
 	}
-#endif /* CONFIG_IEEE80211W */
 
 	if (left > 0) {
 		wpa_hexdump(MSG_DEBUG,
@@ -1852,11 +1835,9 @@ void rsn_pmkid(const u8 *pmk, size_t pmk_len, const u8 *aa, const u8 *spa,
 		wpa_printf(MSG_DEBUG, "RSN: Derive PMKID using HMAC-SHA-384");
 		hmac_sha384_vector(pmk, pmk_len, 3, addr, len, hash);
 #endif /* CONFIG_FILS || CONFIG_SHA384 */
-#if defined(CONFIG_IEEE80211W) || defined(CONFIG_FILS)
 	} else if (wpa_key_mgmt_sha256(akmp)) {
 		wpa_printf(MSG_DEBUG, "RSN: Derive PMKID using HMAC-SHA-256");
 		hmac_sha256_vector(pmk, pmk_len, 3, addr, len, hash);
-#endif /* CONFIG_IEEE80211W || CONFIG_FILS */
 	} else {
 		wpa_printf(MSG_DEBUG, "RSN: Derive PMKID using HMAC-SHA-1");
 		hmac_sha1_vector(pmk, pmk_len, 3, addr, len, hash);
@@ -2007,12 +1988,10 @@ const char * wpa_key_mgmt_txt(int key_mgmt, int proto)
 	case WPA_KEY_MGMT_FT_PSK:
 		return "FT-PSK";
 #endif /* CONFIG_IEEE80211R */
-#ifdef CONFIG_IEEE80211W
 	case WPA_KEY_MGMT_IEEE8021X_SHA256:
 		return "WPA2-EAP-SHA256";
 	case WPA_KEY_MGMT_PSK_SHA256:
 		return "WPA2-PSK-SHA256";
-#endif /* CONFIG_IEEE80211W */
 	case WPA_KEY_MGMT_WPS:
 		return "WPS";
 	case WPA_KEY_MGMT_SAE:
@@ -2126,7 +2105,6 @@ int wpa_compare_rsn_ie(int ft_initial_assoc,
 }
 
 
-#if defined(CONFIG_IEEE80211R) || defined(CONFIG_FILS)
 int wpa_insert_pmkid(u8 *ies, size_t *ies_len, const u8 *pmkid)
 {
 	u8 *start, *end, *rpos, *rend;
@@ -2141,11 +2119,10 @@ int wpa_insert_pmkid(u8 *ies, size_t *ies_len, const u8 *pmkid)
 		start += 2 + start[1];
 	}
 	if (start >= end) {
-		wpa_printf(MSG_ERROR, "FT: Could not find RSN IE in "
-			   "IEs data");
+		wpa_printf(MSG_ERROR, "RSN: Could not find RSNE in IEs data");
 		return -1;
 	}
-	wpa_hexdump(MSG_DEBUG, "FT: RSN IE before modification",
+	wpa_hexdump(MSG_DEBUG, "RSN: RSNE before modification",
 		    start, 2 + start[1]);
 
 	/* Find start of PMKID-Count */
@@ -2171,8 +2148,8 @@ int wpa_insert_pmkid(u8 *ies, size_t *ies_len, const u8 *pmkid)
 		/* Skip RSN Capabilities */
 		rpos += 2;
 		if (rpos > rend) {
-			wpa_printf(MSG_ERROR, "FT: Could not parse RSN IE in "
-				   "IEs data");
+			wpa_printf(MSG_ERROR,
+				   "RSN: Could not parse RSNE in IEs data");
 			return -1;
 		}
 	}
@@ -2203,7 +2180,7 @@ int wpa_insert_pmkid(u8 *ies, size_t *ies_len, const u8 *pmkid)
 			 * PMKID(s) first before adding the new one.
 			 */
 			wpa_printf(MSG_DEBUG,
-				   "FT: Remove %u old PMKID(s) from RSN IE",
+				   "RSN: Remove %u old PMKID(s) from RSNE",
 				   num_pmkid);
 			after = rpos + 2 + num_pmkid * PMKID_LEN;
 			os_memmove(rpos + 2, after, rend - after);
@@ -2218,14 +2195,13 @@ int wpa_insert_pmkid(u8 *ies, size_t *ies_len, const u8 *pmkid)
 		start[1] += PMKID_LEN;
 	}
 
-	wpa_hexdump(MSG_DEBUG, "FT: RSN IE after modification "
-		    "(PMKID inserted)", start, 2 + start[1]);
+	wpa_hexdump(MSG_DEBUG, "RSN: RSNE after modification (PMKID inserted)",
+		    start, 2 + start[1]);
 
 	*ies_len += added;
 
 	return 0;
 }
-#endif /* CONFIG_IEEE80211R || CONFIG_FILS */
 
 
 int wpa_cipher_key_len(int cipher)
