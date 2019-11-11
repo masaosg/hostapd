@@ -12,6 +12,7 @@
 #include "utils/uuid.h"
 #include "utils/ip_addr.h"
 #include "common/ieee802_1x_defs.h"
+#include "common/sae.h"
 #include "crypto/sha1.h"
 #include "rsn_supp/wpa.h"
 #include "eap_peer/eap.h"
@@ -2481,6 +2482,8 @@ static const struct parse_data ssid_fields[] = {
 	{ INT_RANGE(mixed_cell, 0, 1) },
 	{ INT_RANGE(frequency, 0, 70200) },
 	{ INT_RANGE(fixed_freq, 0, 1) },
+	{ INT_RANGE(enable_edmg, 0, 1) },
+	{ INT_RANGE(edmg_channel, 9, 13) },
 #ifdef CONFIG_ACS
 	{ INT_RANGE(acs, 0, 1) },
 #endif /* CONFIG_ACS */
@@ -2763,6 +2766,9 @@ void wpa_config_free_ssid(struct wpa_ssid *ssid)
 		dl_list_del(&psk->list);
 		bin_clear_free(psk, sizeof(*psk));
 	}
+#ifdef CONFIG_SAE
+	sae_deinit_pt(ssid->pt);
+#endif /* CONFIG_SAE */
 	bin_clear_free(ssid, sizeof(*ssid));
 }
 
@@ -2881,6 +2887,8 @@ void wpa_config_free(struct wpa_config *config)
 #ifdef CONFIG_MBO
 	os_free(config->non_pref_chan);
 #endif /* CONFIG_MBO */
+	os_free(config->dpp_name);
+	os_free(config->dpp_mud_url);
 
 	os_free(config);
 }
@@ -3100,6 +3108,15 @@ int wpa_config_set(struct wpa_ssid *ssid, const char *var, const char *value,
 			}
 			ret = -1;
 		}
+#ifdef CONFIG_SAE
+		if (os_strcmp(var, "ssid") == 0 ||
+		    os_strcmp(var, "psk") == 0 ||
+		    os_strcmp(var, "sae_password") == 0 ||
+		    os_strcmp(var, "sae_password_id") == 0) {
+			sae_deinit_pt(ssid->pt);
+			ssid->pt = NULL;
+		}
+#endif /* CONFIG_SAE */
 		break;
 	}
 	if (i == NUM_SSID_FIELDS) {
@@ -4980,6 +4997,7 @@ static const struct global_parse_data global_fields[] = {
 	{ INT(okc), 0 },
 	{ INT(pmf), 0 },
 	{ FUNC(sae_groups), 0 },
+	{ INT_RANGE(sae_pwe, 0, 2), 0 },
 	{ INT_RANGE(sae_pmkid_in_assoc, 0, 1), 0 },
 	{ INT(dtim_period), 0 },
 	{ INT(beacon_int), 0 },
@@ -5020,7 +5038,11 @@ static const struct global_parse_data global_fields[] = {
 	{ INT_RANGE(ftm_initiator, 0, 1), 0 },
 	{ INT(gas_rand_addr_lifetime), 0 },
 	{ INT_RANGE(gas_rand_mac_addr, 0, 2), 0 },
+#ifdef CONFIG_DPP
 	{ INT_RANGE(dpp_config_processing, 0, 2), 0 },
+	{ STR(dpp_name), 0 },
+	{ STR(dpp_mud_url), 0 },
+#endif /* CONFIG_DPP */
 	{ INT_RANGE(coloc_intf_reporting, 0, 1), 0 },
 #ifdef CONFIG_WNM
 	{ INT_RANGE(disable_btm, 0, 1), CFG_CHANGED_DISABLE_BTM },

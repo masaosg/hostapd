@@ -499,7 +499,8 @@ static u8 * hostapd_gen_probe_resp(struct hostapd_data *hapd,
 #endif /* CONFIG_FST */
 
 #ifdef CONFIG_IEEE80211AC
-	if (hapd->iconf->ieee80211ac && !hapd->conf->disable_11ac) {
+	if (hapd->iconf->ieee80211ac && !hapd->conf->disable_11ac &&
+	    !is_6ghz_op_class(hapd->iconf->op_class)) {
 		pos = hostapd_eid_vht_capabilities(hapd, pos, 0);
 		pos = hostapd_eid_vht_operation(hapd, pos);
 		pos = hostapd_eid_txpower_envelope(hapd, pos);
@@ -1434,7 +1435,8 @@ int ieee802_11_set_beacon(struct hostapd_data *hapd)
 
 	if (cmode &&
 	    hostapd_set_freq_params(&freq, iconf->hw_mode, iface->freq,
-				    iconf->channel, iconf->ieee80211n,
+				    iconf->channel, iconf->enable_edmg,
+				    iconf->edmg_channel, iconf->ieee80211n,
 				    iconf->ieee80211ac, iconf->ieee80211ax,
 				    iconf->secondary_channel,
 				    hostapd_get_oper_chwidth(iconf),

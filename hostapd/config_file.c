@@ -3136,6 +3136,8 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 		}
 	} else if (os_strcmp(buf, "acs_exclude_dfs") == 0) {
 		conf->acs_exclude_dfs = atoi(pos);
+	} else if (os_strcmp(buf, "op_class") == 0) {
+		conf->op_class = atoi(pos);
 	} else if (os_strcmp(buf, "channel") == 0) {
 		if (os_strcmp(pos, "acs_survey") == 0) {
 #ifndef CONFIG_ACS
@@ -3150,6 +3152,10 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 			conf->channel = atoi(pos);
 			conf->acs = conf->channel == 0;
 		}
+	} else if (os_strcmp(buf, "edmg_channel") == 0) {
+		conf->edmg_channel = atoi(pos);
+	} else if (os_strcmp(buf, "enable_edmg") == 0) {
+		conf->enable_edmg = atoi(pos);
 	} else if (os_strcmp(buf, "chanlist") == 0) {
 		if (hostapd_parse_chanlist(conf, pos)) {
 			wpa_printf(MSG_ERROR, "Line %d: invalid channel list",
@@ -4178,6 +4184,10 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 		}
 	} else if (os_strcmp(buf, "sae_require_mfp") == 0) {
 		bss->sae_require_mfp = atoi(pos);
+	} else if (os_strcmp(buf, "sae_confirm_immediate") == 0) {
+		bss->sae_confirm_immediate = atoi(pos);
+	} else if (os_strcmp(buf, "sae_pwe") == 0) {
+		bss->sae_pwe = atoi(pos);
 	} else if (os_strcmp(buf, "local_pwr_constraint") == 0) {
 		int val = atoi(pos);
 		if (val < 0 || val > 255) {
@@ -4327,6 +4337,12 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 	} else if (os_strcmp(buf, "broadcast_deauth") == 0) {
 		bss->broadcast_deauth = atoi(pos);
 #ifdef CONFIG_DPP
+	} else if (os_strcmp(buf, "dpp_name") == 0) {
+		os_free(bss->dpp_name);
+		bss->dpp_name = os_strdup(pos);
+	} else if (os_strcmp(buf, "dpp_mud_url") == 0) {
+		os_free(bss->dpp_mud_url);
+		bss->dpp_mud_url = os_strdup(pos);
 	} else if (os_strcmp(buf, "dpp_connector") == 0) {
 		os_free(bss->dpp_connector);
 		bss->dpp_connector = os_strdup(pos);

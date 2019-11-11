@@ -99,6 +99,7 @@ struct hostapd_ssid {
 	struct hostapd_wpa_psk *wpa_psk;
 	char *wpa_passphrase;
 	char *wpa_psk_file;
+	struct sae_pt *pt;
 
 	struct hostapd_wep_keys wep;
 
@@ -251,6 +252,7 @@ struct sae_password_entry {
 	char *identifier;
 	u8 peer_addr[ETH_ALEN];
 	int vlan_id;
+	struct sae_pt *pt;
 };
 
 struct dpp_controller_conf {
@@ -649,6 +651,8 @@ struct hostapd_bss_config {
 	unsigned int sae_anti_clogging_threshold;
 	unsigned int sae_sync;
 	int sae_require_mfp;
+	int sae_confirm_immediate;
+	int sae_pwe;
 	int *sae_groups;
 	struct sae_password_entry *sae_passwords;
 
@@ -707,6 +711,8 @@ struct hostapd_bss_config {
 	int broadcast_deauth;
 
 #ifdef CONFIG_DPP
+	char *dpp_name;
+	char *dpp_mud_url;
 	char *dpp_connector;
 	struct wpabuf *dpp_netaccesskey;
 	unsigned int dpp_netaccesskey_expiry;
@@ -869,7 +875,10 @@ struct hostapd_config {
 	u16 beacon_int;
 	int rts_threshold;
 	int fragm_threshold;
+	u8 op_class;
 	u8 channel;
+	int enable_edmg;
+	u8 edmg_channel;
 	u8 acs;
 	struct wpa_freq_range_list acs_ch_list;
 	int acs_exclude_dfs;
@@ -1098,5 +1107,6 @@ int hostapd_config_check(struct hostapd_config *conf, int full_config);
 void hostapd_set_security_params(struct hostapd_bss_config *bss,
 				 int full_config);
 int hostapd_sae_pw_id_in_use(struct hostapd_bss_config *conf);
+int hostapd_setup_sae_pt(struct hostapd_bss_config *conf);
 
 #endif /* HOSTAPD_CONFIG_H */

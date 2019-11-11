@@ -589,10 +589,11 @@ enum qca_radiotap_vendor_ids {
  *	by the firmware to user space for persistent storage. The attributes
  *	defined in enum qca_vendor_attr_interop_issues_ap are used to deliver
  *	the parameters.
- * @QCA_NL80211_VENDOR_SUBCMD_OEM_DATA: This command is used to send OEM data
- *	binary blobs from application/service to firmware. The attributes
- *	defined in enum qca_wlan_vendor_attr_oem_data_params are used to deliver
- *	the parameters.
+ * @QCA_NL80211_VENDOR_SUBCMD_OEM_DATA: This command/event is used to
+ *	send/receive OEM data binary blobs to/from application/service to/from
+ *	firmware. The attributes defined in enum
+ *	qca_wlan_vendor_attr_oem_data_params are used to deliver the
+ *	parameters.
  * @QCA_NL80211_VENDOR_SUBCMD_AVOID_FREQUENCY_EXT: This command/event is used
  *	to send/receive avoid frequency data using
  *	enum qca_wlan_vendor_attr_avoid_frequency_ext.
@@ -600,6 +601,14 @@ enum qca_radiotap_vendor_ids {
  *	QCA_NL80211_VENDOR_SUBCMD_AVOID_FREQUENCY since existing command/event
  *	is using stream of bytes instead of structured data using vendor
  *	attributes.
+ *
+ * @QCA_NL80211_VENDOR_SUBCMD_ADD_STA_NODE: This vendor subcommand is used to
+ *	add the STA node details in driver/firmware. Attributes for this event
+ *	are specified in enum qca_wlan_vendor_attr_add_sta_node_params.
+ * @QCA_NL80211_VENDOR_SUBCMD_BTC_CHAIN_MODE: This command is used to set BT
+ *	coex chain mode from application/service.
+ *	The attributes defined in enum qca_vendor_attr_btc_chain_mode are used
+ *	to deliver the parameters.
  */
 enum qca_nl80211_vendor_subcmds {
 	QCA_NL80211_VENDOR_SUBCMD_UNSPEC = 0,
@@ -773,6 +782,8 @@ enum qca_nl80211_vendor_subcmds {
 	QCA_NL80211_VENDOR_SUBCMD_INTEROP_ISSUES_AP = 181,
 	QCA_NL80211_VENDOR_SUBCMD_OEM_DATA = 182,
 	QCA_NL80211_VENDOR_SUBCMD_AVOID_FREQUENCY_EXT = 183,
+	QCA_NL80211_VENDOR_SUBCMD_ADD_STA_NODE = 184,
+	QCA_NL80211_VENDOR_SUBCMD_BTC_CHAIN_MODE = 185,
 };
 
 enum qca_wlan_vendor_attr {
@@ -5473,8 +5484,18 @@ enum qca_wlan_vendor_attr_spectral_cap {
 	 * u8 attribute.
 	 */
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CAP_DEFAULT_AGC_MAX_GAIN = 10,
-	/* Flag attribute to indicate agile spectral scan capability */
+	/* Flag attribute to indicate agile spectral scan capability
+	 * for 20/40/80 MHz modes.
+	 */
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CAP_AGILE_SPECTRAL = 11,
+	/* Flag attribute to indicate agile spectral scan capability
+	 * for 160 MHz mode.
+	 */
+	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CAP_AGILE_SPECTRAL_160 = 12,
+	/* Flag attribute to indicate agile spectral scan capability
+	 * for 80+80 MHz mode.
+	 */
+	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CAP_AGILE_SPECTRAL_80_80 = 13,
 
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CAP_AFTER_LAST,
 	QCA_WLAN_VENDOR_ATTR_SPECTRAL_SCAN_CAP_MAX =
@@ -7899,17 +7920,42 @@ enum qca_vendor_attr_interop_issues_ap {
 		QCA_WLAN_VENDOR_ATTR_INTEROP_ISSUES_AP_AFTER_LAST - 1
 };
 
-/*
- * enum qca_wlan_vendor_attr_oem_data_params - Used by the vendor command
+/**
+ * enum qca_vendor_oem_device_type - Represents the target device in firmware.
+ * It is used by QCA_WLAN_VENDOR_ATTR_OEM_DEVICE_INFO.
+ *
+ * @QCA_VENDOR_OEM_DEVICE_VIRTUAL: The command is intended for
+ * a virtual device.
+ *
+ * @QCA_VENDOR_OEM_DEVICE_PHYSICAL: The command is intended for
+ * a physical device.
+ */
+enum qca_vendor_oem_device_type {
+	QCA_VENDOR_OEM_DEVICE_VIRTUAL = 0,
+	QCA_VENDOR_OEM_DEVICE_PHYSICAL = 1,
+};
+
+/**
+ * enum qca_wlan_vendor_attr_oem_data_params - Used by the vendor command/event
  * QCA_NL80211_VENDOR_SUBCMD_OEM_DATA.
  *
  * @QCA_WLAN_VENDOR_ATTR_OEM_DATA_CMD_DATA: The binary blob for the vendor
- * command QCA_NL80211_VENDOR_SUBCMD_OEM_DATA are carried through this attribute.
+ * command/event QCA_NL80211_VENDOR_SUBCMD_OEM_DATA are carried through this
+ * attribute.
  * NLA_BINARY attribute, the max size is 1024 bytes.
+ *
+ * @QCA_WLAN_VENDOR_ATTR_OEM_DEVICE_INFO: The binary blob will be routed
+ * based on this field. This optional attribute is included to specify whether
+ * the device type is a virtual device or a physical device for the
+ * command/event. This attribute can be omitted for a virtual device (default)
+ * command/event.
+ * This u8 attribute is used to carry information for the device type using
+ * values defined by enum qca_vendor_oem_device_type.
  */
 enum qca_wlan_vendor_attr_oem_data_params {
 	QCA_WLAN_VENDOR_ATTR_OEM_DATA_INVALID = 0,
 	QCA_WLAN_VENDOR_ATTR_OEM_DATA_CMD_DATA = 1,
+	QCA_WLAN_VENDOR_ATTR_OEM_DEVICE_INFO = 2,
 
 	/* keep last */
 	QCA_WLAN_VENDOR_ATTR_OEM_DATA_PARAMS_AFTER_LAST,
@@ -7941,6 +7987,63 @@ enum qca_wlan_vendor_attr_avoid_frequency_ext {
 	QCA_WLAN_VENDOR_ATTR_AVOID_FREQUENCY_AFTER_LAST,
 	QCA_WLAN_VENDOR_ATTR_AVOID_FREQUENCY_MAX =
 		QCA_WLAN_VENDOR_ATTR_AVOID_FREQUENCY_AFTER_LAST - 1
+};
+
+/*
+ * enum qca_wlan_vendor_attr_add_sta_node_params - Used by the vendor command
+ * QCA_NL80211_VENDOR_SUBCMD_ADD_STA_NODE.
+ */
+enum qca_wlan_vendor_attr_add_sta_node_params {
+	QCA_WLAN_VENDOR_ATTR_ADD_STA_NODE_INVALID = 0,
+	/* 6 byte MAC address of STA */
+	QCA_WLAN_VENDOR_ATTR_ADD_STA_NODE_MAC_ADDR = 1,
+	/* Authentication algorithm used by the station of size u16;
+	 * defined in enum nl80211_auth_type.
+	 */
+	QCA_WLAN_VENDOR_ATTR_ADD_STA_NODE_AUTH_ALGO = 2,
+
+	/* keep last */
+	QCA_WLAN_VENDOR_ATTR_ADD_STA_NODE_PARAM_AFTER_LAST,
+	QCA_WLAN_VENDOR_ATTR_ADD_STA_NODE_PARAM_MAX =
+		QCA_WLAN_VENDOR_ATTR_ADD_STA_NODE_PARAM_AFTER_LAST - 1
+};
+
+/**
+ * enum qca_btc_chain_mode - Specifies BT coex chain mode.
+ * This enum defines the valid set of values of BT coex chain mode.
+ * These values are used by attribute %QCA_VENDOR_ATTR_BTC_CHAIN_MODE of
+ * %QCA_NL80211_VENDOR_SUBCMD_BTC_CHAIN_MODE.
+ *
+ * @QCA_BTC_CHAIN_SHARED: chains of BT and WLAN 2.4G are shared.
+ * @QCA_BTC_CHAIN_SEPARATED: chains of BT and WLAN 2.4G are separated.
+ */
+enum qca_btc_chain_mode {
+	QCA_BTC_CHAIN_SHARED = 0,
+	QCA_BTC_CHAIN_SEPARATED = 1,
+};
+
+/**
+ * enum qca_vendor_attr_btc_chain_mode - Specifies attributes for BT coex
+ * chain mode.
+ * Attributes for data used by QCA_NL80211_VENDOR_SUBCMD_BTC_CHAIN_MODE.
+ *
+ * @QCA_VENDOR_ATTR_COEX_BTC_CHAIN_MODE: u32 attribute.
+ * Indicates the BT coex chain mode, are 32-bit values from
+ * enum qca_btc_chain_mode. This attribute is mandatory.
+ *
+ * @QCA_VENDOR_ATTR_COEX_BTC_CHAIN_MODE_RESTART: flag attribute.
+ * If set, vdev should be restarted when BT coex chain mode is updated.
+ * This attribute is optional.
+ */
+enum qca_vendor_attr_btc_chain_mode {
+	QCA_VENDOR_ATTR_BTC_CHAIN_MODE_INVALID = 0,
+	QCA_VENDOR_ATTR_BTC_CHAIN_MODE = 1,
+	QCA_VENDOR_ATTR_BTC_CHAIN_MODE_RESTART = 2,
+
+	/* Keep last */
+	QCA_VENDOR_ATTR_BTC_CHAIN_MODE_LAST,
+	QCA_VENDOR_ATTR_BTC_CHAIN_MODE_MAX =
+	QCA_VENDOR_ATTR_BTC_CHAIN_MODE_LAST - 1,
 };
 
 #endif /* QCA_VENDOR_H */

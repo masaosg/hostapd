@@ -213,6 +213,8 @@ struct wpa_ssid {
 	 */
 	char *sae_password_id;
 
+	struct sae_pt *pt;
+
 	/**
 	 * ext_psk - PSK/passphrase name in external storage
 	 *
@@ -482,6 +484,23 @@ struct wpa_ssid {
 	 * will be used instead of this configured value.
 	 */
 	int frequency;
+
+	/**
+	 * enable_edmg - Enable EDMG feature in STA/AP mode
+	 *
+	 * This flag is used for enabling the EDMG capability in STA/AP mode.
+	 */
+	int enable_edmg;
+
+	/**
+	 * edmg_channel - EDMG channel number
+	 *
+	 * This value is used to configure the EDMG channel bonding feature.
+	 * In AP mode it defines the EDMG channel to start the AP on.
+	 * in STA mode it defines the EDMG channel to use for connection
+	 * (if supported by AP).
+	 */
+	u8 edmg_channel;
 
 	/**
 	 * fixed_freq - Use fixed frequency for IBSS
