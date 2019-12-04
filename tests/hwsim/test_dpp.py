@@ -1624,6 +1624,7 @@ def update_hapd_config(hapd):
     logger.info("Update AP configuration to use key_mgmt=DPP")
     hapd.disable()
     hapd.set("ssid", ssid)
+    hapd.set("utf8_ssid", "1")
     hapd.set("wpa", "2")
     hapd.set("wpa_key_mgmt", "DPP")
     hapd.set("ieee80211w", "2")
@@ -1776,6 +1777,13 @@ def test_dpp_auto_connect_legacy(dev, apdev):
     finally:
         dev[0].set("dpp_config_processing", "0")
 
+def test_dpp_auto_connect_legacy_ssid_charset(dev, apdev):
+    """DPP and auto connect (legacy, ssid_charset)"""
+    try:
+        run_dpp_auto_connect_legacy(dev, apdev, ssid_charset=12345)
+    finally:
+        dev[0].set("dpp_config_processing", "0")
+
 def test_dpp_auto_connect_legacy_sae_1(dev, apdev):
     """DPP and auto connect (legacy SAE)"""
     try:
@@ -1814,6 +1822,7 @@ def test_dpp_auto_connect_legacy_psk_sae_3(dev, apdev):
         dev[0].set("dpp_config_processing", "0")
 
 def run_dpp_auto_connect_legacy(dev, apdev, conf='sta-psk',
+                                ssid_charset=None,
                                 psk_sae=False, sae_only=False):
     check_dpp_capab(dev[0])
     check_dpp_capab(dev[1])
@@ -1837,8 +1846,16 @@ def run_dpp_auto_connect_legacy(dev, apdev, conf='sta-psk',
 
     dev[0].dpp_listen(2412)
     dev[1].dpp_auth_init(uri=uri0, conf=conf, ssid="dpp-legacy",
+                         ssid_charset=ssid_charset,
                          passphrase="secret passphrase")
     wait_auth_success(dev[0], dev[1], configurator=dev[1], enrollee=dev[0])
+    if ssid_charset:
+        ev = dev[0].wait_event(["DPP-CONFOBJ-SSID-CHARSET"], timeout=1)
+        if ev is None:
+            raise Exception("ssid_charset not reported")
+        charset = ev.split(' ')[1]
+        if charset != str(ssid_charset):
+            raise Exception("Incorrect ssid_charset reported: " + ev)
     ev = dev[0].wait_event(["DPP-NETWORK-ID"], timeout=1)
     if ev is None:
         raise Exception("DPP network profile not generated")

@@ -169,6 +169,7 @@ enum dpp_netrole {
 struct dpp_configuration {
 	u8 ssid[32];
 	size_t ssid_len;
+	int ssid_charset;
 	enum dpp_akm akm;
 	enum dpp_netrole netrole;
 
@@ -247,6 +248,7 @@ struct dpp_authentication {
 		char *connector; /* received signedConnector */
 		u8 ssid[SSID_MAX_LEN];
 		u8 ssid_len;
+		int ssid_charset;
 		char passphrase[64];
 		u8 psk[PMK_LEN];
 		int psk_set;
