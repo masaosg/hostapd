@@ -813,6 +813,7 @@ void hostapd_config_free_bss(struct hostapd_bss_config *conf)
 	os_free(conf->upc);
 	for (i = 0; i < MAX_WPS_VENDOR_EXTENSIONS; i++)
 		wpabuf_free(conf->wps_vendor_ext[i]);
+	wpabuf_free(conf->wps_application_ext);
 	wpabuf_free(conf->wps_nfc_dh_pubkey);
 	wpabuf_free(conf->wps_nfc_dh_privkey);
 	wpabuf_free(conf->wps_nfc_dev_pw);
@@ -880,6 +881,9 @@ void hostapd_config_free_bss(struct hostapd_bss_config *conf)
 #ifdef CONFIG_TESTING_OPTIONS
 	wpabuf_free(conf->own_ie_override);
 	wpabuf_free(conf->sae_commit_override);
+	wpabuf_free(conf->rsnxe_override_eapol);
+	wpabuf_free(conf->gtk_rsc_override);
+	wpabuf_free(conf->igtk_rsc_override);
 #endif /* CONFIG_TESTING_OPTIONS */
 
 	os_free(conf->no_probe_resp_if_seen_on);
@@ -935,6 +939,7 @@ void hostapd_config_free(struct hostapd_config *conf)
 	os_free(conf->supported_rates);
 	os_free(conf->basic_rates);
 	os_free(conf->acs_ch_list.range);
+	os_free(conf->acs_freq_list.range);
 	os_free(conf->driver_params);
 #ifdef CONFIG_ACS
 	os_free(conf->acs_chan_bias);

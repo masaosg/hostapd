@@ -13,6 +13,7 @@
 
 #include "utils/common.h"
 #include "utils/eloop.h"
+#include "utils/crc32.h"
 #include "common/ieee802_11_defs.h"
 #include "common/wpa_ctrl.h"
 #include "common/hw_features_common.h"
@@ -1190,8 +1191,14 @@ static int hostapd_setup_bss(struct hostapd_data *hapd, int first)
 		os_memcpy(conf->ssid.ssid, ssid, conf->ssid.ssid_len);
 	}
 
+	/*
+	 * Short SSID calculation is identical to FCS and it is defined in
+	 * IEEE P802.11-REVmd/D3.0, 9.4.2.170.3 (Calculating the Short-SSID).
+	 */
+	conf->ssid.short_ssid = crc32(conf->ssid.ssid, conf->ssid.ssid_len);
+
 	if (!hostapd_drv_none(hapd)) {
-		wpa_printf(MSG_ERROR, "Using interface %s with hwaddr " MACSTR
+		wpa_printf(MSG_DEBUG, "Using interface %s with hwaddr " MACSTR
 			   " and ssid \"%s\"",
 			   conf->iface, MAC2STR(hapd->own_addr),
 			   wpa_ssid_txt(conf->ssid.ssid, conf->ssid.ssid_len));
@@ -1572,6 +1579,51 @@ static int setup_interface(struct hostapd_iface *iface)
 }
 
 
+static int configured_fixed_chan_to_freq(struct hostapd_iface *iface)
+{
+	int freq, i, j;
+
+	if (!iface->conf->channel)
+		return 0;
+	if (iface->conf->op_class) {
+		freq = ieee80211_chan_to_freq(NULL, iface->conf->op_class,
+					      iface->conf->channel);
+		if (freq < 0) {
+			wpa_printf(MSG_INFO,
+				   "Could not convert op_class %u channel %u to operating frequency",
+				   iface->conf->op_class, iface->conf->channel);
+			return -1;
+		}
+		iface->freq = freq;
+		return 0;
+	}
+
+	/* Old configurations using only 2.4/5/60 GHz bands may not specify the
+	 * op_class parameter. Select a matching channel from the configured
+	 * mode using the channel parameter for these cases.
+	 */
+	for (j = 0; j < iface->num_hw_features; j++) {
+		struct hostapd_hw_modes *mode = &iface->hw_features[j];
+
+		if (iface->conf->hw_mode != HOSTAPD_MODE_IEEE80211ANY &&
+		    iface->conf->hw_mode != mode->mode)
+			continue;
+		for (i = 0; i < mode->num_channels; i++) {
+			struct hostapd_channel_data *chan = &mode->channels[i];
+
+			if (chan->chan == iface->conf->channel &&
+			    !is_6ghz_freq(chan->freq)) {
+				iface->freq = chan->freq;
+				return 0;
+			}
+		}
+	}
+
+	wpa_printf(MSG_INFO, "Could not determine operating frequency");
+	return -1;
+}
+
+
 static int setup_interface2(struct hostapd_iface *iface)
 {
 	iface->wait_channel_update = 0;
@@ -1580,7 +1632,20 @@ static int setup_interface2(struct hostapd_iface *iface)
 		/* Not all drivers support this yet, so continue without hw
 		 * feature data. */
 	} else {
-		int ret = hostapd_select_hw_mode(iface);
+		int ret;
+
+		ret = configured_fixed_chan_to_freq(iface);
+		if (ret < 0)
+			goto fail;
+
+		if (iface->conf->op_class) {
+			int ch_width;
+
+			ch_width = op_class_to_ch_width(iface->conf->op_class);
+			hostapd_set_oper_chwidth(iface->conf, ch_width);
+		}
+
+		ret = hostapd_select_hw_mode(iface);
 		if (ret < 0) {
 			wpa_printf(MSG_ERROR, "Could not select hw_mode and "
 				   "channel. (%d)", ret);
@@ -1864,12 +1929,11 @@ static int hostapd_setup_interface_complete_sync(struct hostapd_iface *iface,
 		goto fail;
 
 	wpa_printf(MSG_DEBUG, "Completing interface initialization");
-	if (iface->conf->channel) {
+	if (iface->freq) {
 #ifdef NEED_AP_MLME
 		int res;
 #endif /* NEED_AP_MLME */
 
-		iface->freq = hostapd_hw_get_freq(hapd, iface->conf->channel);
 		wpa_printf(MSG_DEBUG, "Mode: %s  Channel: %d  "
 			   "Frequency: %d MHz",
 			   hostapd_hw_mode_txt(iface->conf->hw_mode),

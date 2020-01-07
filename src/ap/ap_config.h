@@ -88,6 +88,7 @@ typedef enum hostap_security_policy {
 struct hostapd_ssid {
 	u8 ssid[SSID_MAX_LEN];
 	size_t ssid_len;
+	u32 short_ssid;
 	unsigned int ssid_set:1;
 	unsigned int utf8_ssid:1;
 	unsigned int wpa_passphrase_set:1;
@@ -497,6 +498,7 @@ struct hostapd_bss_config {
 	char *model_url;
 	char *upc;
 	struct wpabuf *wps_vendor_ext[MAX_WPS_VENDOR_EXTENSIONS];
+	struct wpabuf *wps_application_ext;
 	int wps_nfc_pw_from_config;
 	int wps_nfc_dev_pw_id;
 	struct wpabuf *wps_nfc_dh_pubkey;
@@ -664,6 +666,9 @@ struct hostapd_bss_config {
 	struct wpabuf *own_ie_override;
 	int sae_reflection_attack;
 	struct wpabuf *sae_commit_override;
+	struct wpabuf *rsnxe_override_eapol;
+	struct wpabuf *gtk_rsc_override;
+	struct wpabuf *igtk_rsc_override;
 #endif /* CONFIG_TESTING_OPTIONS */
 
 #define MESH_ENABLED BIT(0)
@@ -881,8 +886,11 @@ struct hostapd_config {
 	u8 edmg_channel;
 	u8 acs;
 	struct wpa_freq_range_list acs_ch_list;
+	struct wpa_freq_range_list acs_freq_list;
+	u8 acs_freq_list_present;
 	int acs_exclude_dfs;
 	enum hostapd_hw_mode hw_mode; /* HOSTAPD_MODE_IEEE80211A, .. */
+	int acs_exclude_6ghz_non_psc;
 	enum {
 		LONG_PREAMBLE = 0,
 		SHORT_PREAMBLE = 1

@@ -1704,6 +1704,8 @@ struct wpa_driver_capa {
 #define WPA_DRIVER_FLAGS_FTM_RESPONDER		0x0100000000000000ULL
 /** Driver support 4-way handshake offload for WPA-Personal */
 #define WPA_DRIVER_FLAGS_4WAY_HANDSHAKE_PSK	0x0200000000000000ULL
+/** Driver supports a separate control port for EAPOL frames */
+#define WPA_DRIVER_FLAGS_CONTROL_PORT		0x0400000000000000ULL
 	u64 flags;
 
 #define FULL_AP_CLIENT_STATE_SUPP(drv_flags) \
@@ -2192,9 +2194,7 @@ struct drv_acs_params {
 	/* Configured ACS channel width */
 	u16 ch_width;
 
-	/* ACS channel list info */
-	unsigned int ch_list_len;
-	const u8 *ch_list;
+	/* ACS frequency list info */
 	const int *freq_list;
 };
 
@@ -2611,11 +2611,13 @@ struct wpa_driver_ops {
 	 * driver decide
 	 * @csa_offs: Array of CSA offsets or %NULL
 	 * @csa_offs_len: Number of elements in csa_offs
+	 * @no_encrypt: Do not encrypt frame even if appropriate key exists
+	 *	(used only for testing purposes)
 	 * Returns: 0 on success, -1 on failure
 	 */
 	int (*send_mlme)(void *priv, const u8 *data, size_t data_len,
 			 int noack, unsigned int freq, const u16 *csa_offs,
-			 size_t csa_offs_len);
+			 size_t csa_offs_len, int no_encrypt);
 
 	/**
 	 * update_ft_ies - Update FT (IEEE 802.11r) IEs
@@ -2870,6 +2872,33 @@ struct wpa_driver_ops {
 			     const u8 *addr);
 
 	/**
+	 * tx_control_port - Send a frame over the 802.1X controlled port
+	 * @priv: Private driver interface data
+	 * @dest: Destination MAC address
+	 * @proto: Ethertype in host byte order
+	 * @buf: Frame payload starting from IEEE 802.1X header
+	 * @len: Frame payload length
+	 * @no_encrypt: Do not encrypt frame
+	 *
+	 * Returns 0 on success, else an error
+	 *
+	 * This is like a normal Ethernet send except that the driver is aware
+	 * (by other means than the Ethertype) that this frame is special,
+	 * and more importantly it gains an ordering between the transmission of
+	 * the frame and other driver management operations such as key
+	 * installations. This can be used to work around known limitations in
+	 * IEEE 802.11 protocols such as race conditions between rekeying 4-way
+	 * handshake message 4/4 and a PTK being overwritten.
+	 *
+	 * This function is only used for a given interface if the driver
+	 * instance reports WPA_DRIVER_FLAGS_CONTROL_PORT capability. Otherwise,
+	 * API users will fall back to sending the frame via a normal socket.
+	 */
+	int (*tx_control_port)(void *priv, const u8 *dest,
+			       u16 proto, const u8 *buf, size_t len,
+			       int no_encrypt);
+
+	/**
 	 * hapd_send_eapol - Send an EAPOL packet (AP only)
 	 * @priv: private driver interface data
 	 * @addr: Destination MAC address
@@ -3115,19 +3144,6 @@ struct wpa_driver_ops {
 	int (*commit)(void *priv);
 
 	/**
-	 * send_ether - Send an ethernet packet (AP only)
-	 * @priv: private driver interface data
-	 * @dst: Destination MAC address
-	 * @src: Source MAC address
-	 * @proto: Ethertype
-	 * @data: EAPOL packet starting with IEEE 802.1X header
-	 * @data_len: Length of the EAPOL packet in octets
-	 * Returns: 0 on success, -1 on failure
-	 */
-	int (*send_ether)(void *priv, const u8 *dst, const u8 *src, u16 proto,
-			  const u8 *data, size_t data_len);
-
-	/**
 	 * set_radius_acl_auth - Notification of RADIUS ACL change
 	 * @priv: Private driver interface data
 	 * @mac: MAC address of the station
@@ -3350,20 +3366,6 @@ struct wpa_driver_ops {
 	int (*signal_monitor)(void *priv, int threshold, int hysteresis);
 
 	/**
-	 * send_frame - Send IEEE 802.11 frame (testing use only)
-	 * @priv: Private driver interface data
-	 * @data: IEEE 802.11 frame with IEEE 802.11 header
-	 * @data_len: Size of the frame
-	 * @encrypt: Whether to encrypt the frame (if keys are set)
-	 * Returns: 0 on success, -1 on failure
-	 *
-	 * This function is only used for debugging purposes and is not
-	 * required to be implemented for normal operations.
-	 */
-	int (*send_frame)(void *priv, const u8 *data, size_t data_len,
-			  int encrypt);
-
-	/**
 	 * get_noa - Get current Notice of Absence attribute payload
 	 * @priv: Private driver interface data
 	 * @buf: Buffer for returning NoA
@@ -3513,6 +3515,12 @@ struct wpa_driver_ops {
 	 */
 	int (*br_set_net_param)(void *priv, enum drv_br_net_param param,
 				unsigned int val);
+
+	/**
+	 * get_wowlan - Get wake-on-wireless status
+	 * @priv: Private driver interface data
+	 */
+	int (*get_wowlan)(void *priv);
 
 	/**
 	 * set_wowlan - Set wake-on-wireless triggers
@@ -5609,8 +5617,8 @@ union wpa_event_data {
 
 	/**
 	 * struct acs_selected_channels - Data for EVENT_ACS_CHANNEL_SELECTED
-	 * @pri_channel: Selected primary channel
-	 * @sec_channel: Selected secondary channel
+	 * @pri_freq: Selected primary frequency
+	 * @sec_freq: Selected secondary frequency
 	 * @vht_seg0_center_ch: VHT mode Segment0 center channel
 	 * @vht_seg1_center_ch: VHT mode Segment1 center channel
 	 * @ch_width: Selected Channel width by driver. Driver may choose to
@@ -5619,8 +5627,8 @@ union wpa_event_data {
 	 * hw_mode: Selected band (used with hw_mode=any)
 	 */
 	struct acs_selected_channels {
-		u8 pri_channel;
-		u8 sec_channel;
+		unsigned int pri_freq;
+		unsigned int sec_freq;
 		u8 vht_seg0_center_ch;
 		u8 vht_seg1_center_ch;
 		u16 ch_width;

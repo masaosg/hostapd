@@ -47,6 +47,9 @@ struct ctrl_iface_global_priv;
 struct wpas_dbus_priv;
 struct wpas_binder_priv;
 
+/* How many seconds to consider old scan results valid for association. */
+#define SCAN_RES_VALID_FOR_CONNECT 5
+
 /**
  * struct wpa_interface - Parameters for wpa_supplicant_add_iface()
  */
@@ -280,6 +283,7 @@ struct wpa_global {
 	struct dl_list p2p_srv_upnp; /* struct p2p_srv_upnp */
 	int p2p_disabled;
 	int cross_connection;
+	int p2p_long_listen; /* remaining time in long Listen state in ms */
 	struct wpa_freq_range_list p2p_disallow_freq;
 	struct wpa_freq_range_list p2p_go_avoid_freq;
 	enum wpa_conc_pref {
@@ -475,6 +479,16 @@ struct fils_hlp_req {
 	struct dl_list list;
 	u8 dst[ETH_ALEN];
 	struct wpabuf *pkt;
+};
+
+struct driver_signal_override {
+	struct dl_list list;
+	u8 bssid[ETH_ALEN];
+	int si_current_signal;
+	int si_avg_signal;
+	int si_avg_beacon_signal;
+	int si_current_noise;
+	int scan_level;
 };
 
 /**
@@ -877,7 +891,6 @@ struct wpa_supplicant {
 		P2P_GROUP_INTERFACE_CLIENT
 	} p2p_group_interface;
 	struct p2p_group *p2p_group;
-	int p2p_long_listen; /* remaining time in long Listen state in ms */
 	char p2p_pin[10];
 	int p2p_wps_method;
 	u8 p2p_auth_invite[ETH_ALEN];
@@ -931,6 +944,7 @@ struct wpa_supplicant {
 	unsigned int p2p_pd_before_go_neg:1;
 	unsigned int p2p_go_ht40:1;
 	unsigned int p2p_go_vht:1;
+	unsigned int p2p_go_edmg:1;
 	unsigned int p2p_go_he:1;
 	unsigned int user_initiated_pd:1;
 	unsigned int p2p_go_group_formation_completed:1;
@@ -1117,6 +1131,7 @@ struct wpa_supplicant {
 	unsigned int ignore_auth_resp:1;
 	unsigned int ignore_assoc_disallow:1;
 	unsigned int testing_resend_assoc:1;
+	unsigned int ignore_sae_h2e_only:1;
 	struct wpabuf *sae_commit_override;
 	enum wpa_alg last_tk_alg;
 	u8 last_tk_addr[ETH_ALEN];
@@ -1124,6 +1139,10 @@ struct wpa_supplicant {
 	u8 last_tk[WPA_TK_MAX_LEN];
 	size_t last_tk_len;
 	struct wpabuf *last_assoc_req_wpa_ie;
+	int *extra_sae_rejected_groups;
+	struct wpabuf *rsnxe_override_assoc;
+	struct wpabuf *rsnxe_override_eapol;
+	struct dl_list drv_signal_override;
 #endif /* CONFIG_TESTING_OPTIONS */
 
 	struct wmm_ac_assoc_data *wmm_ac_assoc_info;
@@ -1226,7 +1245,7 @@ struct wpa_supplicant {
 	unsigned int dpp_listen_freq;
 	u8 dpp_allowed_roles;
 	int dpp_qr_mutual;
-	int dpp_netrole_ap;
+	int dpp_netrole;
 	int dpp_auth_ok_on_ack;
 	int dpp_in_response_listen;
 	int dpp_gas_client;
@@ -1394,6 +1413,7 @@ int wpas_beacon_rep_scan_process(struct wpa_supplicant *wpa_s,
 				 struct scan_info *info);
 void wpas_clear_beacon_rep_data(struct wpa_supplicant *wpa_s);
 void wpas_flush_fils_hlp_req(struct wpa_supplicant *wpa_s);
+void wpas_clear_disabled_interface(void *eloop_ctx, void *timeout_ctx);
 
 
 /* MBO functions */
@@ -1560,5 +1580,7 @@ int wpas_ctrl_iface_get_pref_freq_list_override(struct wpa_supplicant *wpa_s,
 
 int wpa_is_fils_supported(struct wpa_supplicant *wpa_s);
 int wpa_is_fils_sk_pfs_supported(struct wpa_supplicant *wpa_s);
+
+void wpas_clear_driver_signal_override(struct wpa_supplicant *wpa_s);
 
 #endif /* WPA_SUPPLICANT_I_H */

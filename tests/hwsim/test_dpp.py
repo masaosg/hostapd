@@ -18,8 +18,10 @@ import time
 
 import hostapd
 import hwsim_utils
+from hwsim import HWSimRadio
 from utils import HwsimSkip, alloc_fail, fail_test, wait_fail_trigger
 from wpasupplicant import WpaSupplicant
+from wlantest import WlantestCapture
 
 try:
     import OpenSSL
@@ -439,7 +441,7 @@ def test_dpp_auth_resp_retries(dev, apdev):
     logger.info("dev0 scans QR Code")
     id0b = dev[0].dpp_qr_code(uri1b)
 
-    ev = dev[0].wait_event(["DPP-TX"], timeout=5)
+    ev = dev[0].wait_event(["DPP-TX "], timeout=5)
     if ev is None or "type=1" not in ev:
         raise Exception("DPP Authentication Response not sent")
     ev = dev[0].wait_event(["DPP-TX-STATUS"], timeout=5)
@@ -448,7 +450,7 @@ def test_dpp_auth_resp_retries(dev, apdev):
     if "result=no-ACK" not in ev:
         raise Exception("Unexpected TX status for Authentication Response: " + ev)
 
-    ev = dev[0].wait_event(["DPP-TX"], timeout=15)
+    ev = dev[0].wait_event(["DPP-TX "], timeout=15)
     if ev is None or "type=1" not in ev:
         raise Exception("DPP Authentication Response retransmission not sent")
 
@@ -655,7 +657,7 @@ def test_dpp_qr_code_auth_neg_chan(dev, apdev):
     dev[1].dpp_auth_init(uri=uri0, conf="sta-dpp", neg_freq=2462,
                          configurator=conf_id)
 
-    ev = dev[1].wait_event(["DPP-TX"], timeout=5)
+    ev = dev[1].wait_event(["DPP-TX "], timeout=5)
     if ev is None:
         raise Exception("DPP Authentication Request not sent")
     if "freq=2412 type=0" not in ev:
@@ -673,7 +675,7 @@ def test_dpp_qr_code_auth_neg_chan(dev, apdev):
     if "freq=2412 result=SUCCESS" not in ev:
         raise Exception("Unexpected TX status for Authentication Request: " + ev)
 
-    ev = dev[0].wait_event(["DPP-TX"], timeout=5)
+    ev = dev[0].wait_event(["DPP-TX "], timeout=5)
     if ev is None:
         raise Exception("DPP Authentication Response not sent")
     if "freq=2462 type=1" not in ev:
@@ -691,7 +693,7 @@ def test_dpp_qr_code_auth_neg_chan(dev, apdev):
     if "freq=2462 result=SUCCESS" not in ev:
         raise Exception("Unexpected TX status for Authentication Response: " + ev)
 
-    ev = dev[1].wait_event(["DPP-TX"], timeout=5)
+    ev = dev[1].wait_event(["DPP-TX "], timeout=5)
     if ev is None:
         raise Exception("DPP Authentication Confirm not sent")
     if "freq=2462 type=2" not in ev:
@@ -3323,7 +3325,7 @@ def test_dpp_proto_network_introduction(dev, apdev):
                        dpp_netaccesskey=params1_sta_netaccesskey,
                        wait_connect=False)
 
-        ev = dev[0].wait_event(["DPP-TX"], timeout=10)
+        ev = dev[0].wait_event(["DPP-TX "], timeout=10)
         if ev is None or "type=5" not in ev:
             raise Exception("Peer Discovery Request TX not reported")
         ev = dev[0].wait_event(["DPP-TX-STATUS"], timeout=2)
@@ -3696,7 +3698,7 @@ def wait_auth_success(responder, initiator, configurator=None, enrollee=None,
         if ev is None:
             raise Exception("DPP configuration not completed (Configurator)")
         if "DPP-CONF-FAILED" in ev and not allow_configurator_failure:
-            raise Exception("DPP configuration did not succeed (Configurator")
+            raise Exception("DPP configuration did not succeed (Configurator)")
         if "DPP-CONF-SENT" in ev and require_configurator_failure:
             raise Exception("DPP configuration succeeded (Configurator)")
         if "DPP-CONF-SENT" in ev and "wait_conn_status=1" in ev:
@@ -4479,9 +4481,7 @@ def run_dpp_controller_relay(dev, apdev, params):
     prefix = "dpp_controller_relay"
     cap_lo = os.path.join(params['logdir'], prefix + ".lo.pcap")
 
-    cmd = subprocess.Popen(['tcpdump', '-p', '-U', '-i', 'lo',
-                            '-w', cap_lo, '-s', '2000'],
-                           stderr=open('/dev/null', 'w'))
+    wt = WlantestCapture('lo', cap_lo)
 
     # Controller
     conf_id = dev[1].dpp_configurator_add()
@@ -4525,7 +4525,7 @@ def run_dpp_controller_relay(dev, apdev, params):
     dev[0].wait_connected()
 
     time.sleep(0.5)
-    cmd.terminate()
+    wt.close()
 
 def test_dpp_tcp(dev, apdev, params):
     """DPP over TCP"""
@@ -4549,9 +4549,7 @@ def run_dpp_tcp(dev, apdev, cap_lo, port=None):
     check_dpp_capab(dev[0])
     check_dpp_capab(dev[1])
 
-    cmd = subprocess.Popen(['tcpdump', '-p', '-U', '-i', 'lo',
-                            '-w', cap_lo, '-s', '2000'],
-                           stderr=open('/dev/null', 'w'))
+    wt = WlantestCapture('lo', cap_lo)
     time.sleep(1)
 
     # Controller
@@ -4582,7 +4580,7 @@ def run_dpp_tcp(dev, apdev, cap_lo, port=None):
                       allow_enrollee_failure=True,
                       allow_configurator_failure=True)
     time.sleep(0.5)
-    cmd.terminate()
+    wt.close()
 
 def test_dpp_tcp_controller_start_failure(dev, apdev, params):
     """DPP Controller startup failure"""
@@ -4725,7 +4723,15 @@ def test_dpp_conn_status_connector_mismatch(dev, apdev):
     finally:
         dev[0].set("dpp_config_processing", "0")
 
-def run_dpp_conn_status(dev, apdev, result=0):
+def test_dpp_conn_status_assoc_reject(dev, apdev):
+    """DPP connection status - association rejection"""
+    try:
+        dev[0].request("TEST_ASSOC_IE 30020000")
+        run_dpp_conn_status(dev, apdev, assoc_reject=True)
+    finally:
+        dev[0].set("dpp_config_processing", "0")
+
+def run_dpp_conn_status(dev, apdev, result=0, assoc_reject=False):
     check_dpp_capab(dev[0], min_ver=2)
     check_dpp_capab(dev[1], min_ver=2)
 
@@ -4773,6 +4779,8 @@ def run_dpp_conn_status(dev, apdev, result=0):
     if 'wait_conn_status' not in res:
         raise Exception("Configurator did not request connection status")
 
+    if assoc_reject and result == 0:
+        result = 2
     ev = dev[1].wait_event(["DPP-CONN-STATUS-RESULT"], timeout=20)
     if ev is None:
         raise Exception("No connection status reported")
@@ -4853,3 +4861,36 @@ def run_dpp_config_save(dev, apdev, config, conf_ssid, exp_ssid):
             raise Exception("SSID not saved")
         if 'psk="secret passphrase"' not in data:
             raise Exception("Passphtase not saved")
+
+def test_dpp_nfc_uri(dev, apdev):
+    """DPP bootstrapping via NFC URI record"""
+    check_dpp_capab(dev[0])
+    check_dpp_capab(dev[1])
+
+    id = dev[0].dpp_bootstrap_gen(type="nfc-uri", chan="81/1", mac=True)
+    uri = dev[0].request("DPP_BOOTSTRAP_GET_URI %d" % id)
+    logger.info("Generated URI: " + uri)
+    info = dev[0].request("DPP_BOOTSTRAP_INFO %d" % id)
+    logger.info("Bootstrapping info:\n" + info)
+    if "type=NFC-URI" not in info:
+        raise Exception("Unexpected bootstrapping info contents")
+
+    dev[0].dpp_listen(2412)
+    conf_id = dev[1].dpp_configurator_add()
+    dev[1].dpp_auth_init(nfc_uri=uri, configurator=conf_id, conf="sta-dpp")
+    wait_auth_success(dev[0], dev[1], configurator=dev[1], enrollee=dev[0])
+
+def test_dpp_with_p2p_device(dev, apdev):
+    """DPP exchange when driver uses a separate P2P Device interface"""
+    check_dpp_capab(dev[0])
+    with HWSimRadio(use_p2p_device=True) as (radio, iface):
+        wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
+        wpas.interface_add(iface)
+        check_dpp_capab(wpas)
+        id1 = wpas.dpp_bootstrap_gen(chan="81/1", mac=True)
+        uri1 = wpas.request("DPP_BOOTSTRAP_GET_URI %d" % id1)
+        wpas.dpp_listen(2412)
+        time.sleep(7)
+        dev[0].dpp_auth_init(uri=uri1)
+        wait_auth_success(wpas, dev[0], configurator=dev[0], enrollee=wpas,
+                          allow_enrollee_failure=True)

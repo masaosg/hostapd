@@ -271,6 +271,18 @@ class Hostapd:
         if addr and addr not in ev:
             raise Exception("Unexpected STA address in connection event: " + ev)
 
+    def wait_ptkinitdone(self, addr, timeout=2):
+        while timeout > 0:
+            sta = self.get_sta(addr)
+            if 'hostapdWPAPTKState' not in sta:
+                raise Exception("GET_STA did not return hostapdWPAPTKState")
+            state = sta['hostapdWPAPTKState']
+            if state == "11":
+                return
+            os.sleep(0.1)
+            timeout -= 0.1
+        raise Exception("Timeout while waiting for PTKINITDONE")
+
     def get_status(self):
         res = self.request("STATUS")
         lines = res.splitlines()
@@ -619,14 +631,17 @@ def terminate(apdev):
     hapd_global = HostapdGlobal(apdev)
     hapd_global.terminate()
 
-def wpa2_params(ssid=None, passphrase=None):
+def wpa2_params(ssid=None, passphrase=None, wpa_key_mgmt="WPA-PSK",
+                ieee80211w=None):
     params = {"wpa": "2",
-              "wpa_key_mgmt": "WPA-PSK",
+              "wpa_key_mgmt": wpa_key_mgmt,
               "rsn_pairwise": "CCMP"}
     if ssid:
         params["ssid"] = ssid
     if passphrase:
         params["wpa_passphrase"] = passphrase
+    if ieee80211w is not None:
+        params["ieee80211w"] = ieee80211w
     return params
 
 def wpa_params(ssid=None, passphrase=None):

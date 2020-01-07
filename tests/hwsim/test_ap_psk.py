@@ -23,6 +23,7 @@ from utils import HwsimSkip, fail_test, skip_with_fips, start_monitor, stop_moni
 import hwsim_utils
 from wpasupplicant import WpaSupplicant
 from tshark import run_tshark
+from wlantest import WlantestCapture
 
 def check_mib(dev, vals):
     mib = dev.get_mib()
@@ -1330,11 +1331,6 @@ def reply_eapol(info, hapd, addr, msg, key_info, nonce, data, kck):
     eapol_key_mic(kck, msg)
     send_eapol(hapd, addr, build_eapol(msg))
 
-def hapd_connected(hapd):
-    ev = hapd.wait_event(["AP-STA-CONNECTED"], timeout=15)
-    if ev is None:
-        raise Exception("Timeout on AP-STA-CONNECTED from hostapd")
-
 def eapol_test(apdev, dev, wpa2=True, ieee80211w=0):
     bssid = apdev['bssid']
     if wpa2:
@@ -1391,7 +1387,7 @@ def test_ap_wpa2_psk_ext_eapol(dev, apdev):
     send_eapol(hapd, addr, build_eapol(msg))
 
     reply_eapol("4/4", hapd, addr, msg, 0x030a, None, None, kck)
-    hapd_connected(hapd)
+    hapd.wait_sta(timeout=15)
 
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_retry1(dev, apdev):
@@ -1418,7 +1414,7 @@ def test_ap_wpa2_psk_ext_eapol_retry1(dev, apdev):
         raise Exception("ANonce changed")
 
     reply_eapol("4/4", hapd, addr, msg, 0x030a, None, None, kck)
-    hapd_connected(hapd)
+    hapd.wait_sta(timeout=15)
 
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_retry1b(dev, apdev):
@@ -1440,7 +1436,7 @@ def test_ap_wpa2_psk_ext_eapol_retry1b(dev, apdev):
         raise Exception("ANonce changed")
 
     reply_eapol("4/4", hapd, addr, msg, 0x030a, None, None, kck)
-    hapd_connected(hapd)
+    hapd.wait_sta(timeout=15)
 
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_retry1c(dev, apdev):
@@ -1464,7 +1460,7 @@ def test_ap_wpa2_psk_ext_eapol_retry1c(dev, apdev):
     if anonce != msg['rsn_key_nonce']:
         raise Exception("ANonce changed")
     reply_eapol("4/4", hapd, addr, msg, 0x030a, None, None, kck)
-    hapd_connected(hapd)
+    hapd.wait_sta(timeout=15)
 
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_retry1d(dev, apdev):
@@ -1488,7 +1484,7 @@ def test_ap_wpa2_psk_ext_eapol_retry1d(dev, apdev):
     if anonce != msg['rsn_key_nonce']:
         raise Exception("ANonce changed")
     reply_eapol("4/4", hapd, addr, msg, 0x030a, None, None, kck)
-    hapd_connected(hapd)
+    hapd.wait_sta(timeout=15)
 
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_type_diff(dev, apdev):
@@ -1519,7 +1515,7 @@ def test_ap_wpa2_psk_ext_eapol_type_diff(dev, apdev):
     send_eapol(hapd, addr, build_eapol(msg))
 
     reply_eapol("4/4", hapd, addr, msg, 0x030a, None, None, kck)
-    hapd_connected(hapd)
+    hapd.wait_sta(timeout=15)
 
 @remote_compatible
 def test_ap_wpa_psk_ext_eapol(dev, apdev):
@@ -1547,7 +1543,7 @@ def test_ap_wpa_psk_ext_eapol(dev, apdev):
     send_eapol(hapd, addr, build_eapol(msg))
 
     reply_eapol("4/4", hapd, addr, msg, 0x030a, None, None, kck)
-    hapd_connected(hapd)
+    hapd.wait_sta(timeout=15)
 
 @remote_compatible
 def test_ap_wpa2_psk_ext_eapol_key_info(dev, apdev):
@@ -1593,7 +1589,7 @@ def test_ap_wpa2_psk_ext_eapol_key_info(dev, apdev):
     send_eapol(hapd, addr, build_eapol(msg))
 
     reply_eapol("4/4", hapd, addr, msg, 0x030a, None, None, kck)
-    hapd_connected(hapd)
+    hapd.wait_sta(timeout=15)
 
 def build_eapol_key_1_4(anonce, replay_counter=1, key_data=b'', key_len=16):
     msg = {}
@@ -3079,16 +3075,20 @@ def test_ap_wpa2_disable_eapol_retry_group(dev, apdev):
     bssid = apdev[0]['bssid']
 
     id = dev[1].connect(ssid, psk=passphrase, scan_freq="2412")
+    hapd.wait_sta()
     dev[0].connect(ssid, psk=passphrase, scan_freq="2412")
+    hapd.wait_sta()
     dev[0].dump_monitor()
     addr = dev[0].own_addr()
 
     dev[1].request("DISCONNECT")
+    dev[1].wait_disconnected()
     ev = dev[0].wait_event(["WPA: Group rekeying completed"], timeout=2)
     if ev is None:
         raise Exception("GTK rekey timed out")
     dev[1].request("RECONNECT")
     dev[1].wait_connected()
+    hapd.wait_sta()
     dev[0].dump_monitor()
 
     hapd.request("SET ext_eapol_frame_io 1")
@@ -3220,10 +3220,7 @@ def test_ap_wpa2_psk_inject_assoc(dev, apdev, params):
     params = hostapd.wpa2_params(ssid=ssid, passphrase="12345678")
     params["wpa_key_mgmt"] = "WPA-PSK"
     hapd = hostapd.add_ap(apdev[0], params)
-    capture = subprocess.Popen(['tcpdump', '-p', '-U', '-i', ifname,
-                                '-w', cap, '-s', '2000'],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
+    wt = WlantestCapture(ifname, cap)
     time.sleep(1)
 
     bssid = hapd.own_addr().replace(':', '')
@@ -3261,10 +3258,7 @@ def test_ap_wpa2_psk_inject_assoc(dev, apdev, params):
     time.sleep(1)
     hwsim_utils.test_connectivity(dev[0], hapd)
     time.sleep(0.5)
-    capture.terminate()
-    res = capture.communicate()
-    logger.info("tcpdump stdout: " + res[0].decode())
-    logger.info("tcpdump stderr: " + res[1].decode())
+    wt.close()
     time.sleep(0.5)
 
     # Check for Layer 2 Update frame and unexpected frames from the station
@@ -3288,3 +3282,27 @@ def test_ap_wpa2_psk_inject_assoc(dev, apdev, params):
                      wait=False)
     if len(res) > 0:
         raise Exception("Unexpected frame from unauthorized STA seen")
+
+def test_ap_wpa2_psk_no_control_port(dev, apdev):
+    """WPA2-PSK AP without nl80211 control port"""
+    ssid = "test-wpa2-psk"
+    passphrase = 'qwertyuiop'
+    params = hostapd.wpa2_params(ssid=ssid, passphrase=passphrase)
+    params['driver_params'] = "control_port=0"
+    hapd = hostapd.add_ap(apdev[0], params)
+
+    wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
+    wpas.interface_add("wlan5", drv_params="control_port=0")
+    wpas.connect(ssid, psk=passphrase, scan_freq="2412")
+    hapd.wait_sta()
+    hwsim_utils.test_connectivity(wpas, hapd)
+    if "OK" not in wpas.request("KEY_REQUEST 0 1"):
+        raise Exception("KEY_REQUEST failed")
+    ev = wpas.wait_event(["WPA: Key negotiation completed"])
+    if ev is None:
+        raise Exception("PTK rekey timed out")
+    hapd.wait_ptkinitdone(wpas.own_addr())
+    hwsim_utils.test_connectivity(wpas, hapd)
+    wpas.request("DISCONNECT")
+    wpas.wait_disconnected()
+    wpas.dump_monitor()

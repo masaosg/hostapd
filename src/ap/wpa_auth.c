@@ -148,9 +148,33 @@ static inline int wpa_auth_set_key(struct wpa_authenticator *wpa_auth,
 static inline int wpa_auth_get_seqnum(struct wpa_authenticator *wpa_auth,
 				      const u8 *addr, int idx, u8 *seq)
 {
+	int res;
+
 	if (wpa_auth->cb->get_seqnum == NULL)
 		return -1;
-	return wpa_auth->cb->get_seqnum(wpa_auth->cb_ctx, addr, idx, seq);
+	res = wpa_auth->cb->get_seqnum(wpa_auth->cb_ctx, addr, idx, seq);
+#ifdef CONFIG_TESTING_OPTIONS
+	if (!addr && idx < 4 && wpa_auth->conf.gtk_rsc_override_set) {
+		wpa_printf(MSG_DEBUG,
+			   "TESTING: Override GTK RSC %016llx --> %016llx",
+			   (long long unsigned) WPA_GET_LE64(seq),
+			   (long long unsigned)
+			   WPA_GET_LE64(wpa_auth->conf.gtk_rsc_override));
+		os_memcpy(seq, wpa_auth->conf.gtk_rsc_override,
+			  WPA_KEY_RSC_LEN);
+	}
+	if (!addr && idx >= 4 && idx <= 5 &&
+	    wpa_auth->conf.igtk_rsc_override_set) {
+		wpa_printf(MSG_DEBUG,
+			   "TESTING: Override IGTK RSC %016llx --> %016llx",
+			   (long long unsigned) WPA_GET_LE64(seq),
+			   (long long unsigned)
+			   WPA_GET_LE64(wpa_auth->conf.igtk_rsc_override));
+		os_memcpy(seq, wpa_auth->conf.igtk_rsc_override,
+			  WPA_KEY_RSC_LEN);
+	}
+#endif /* CONFIG_TESTING_OPTIONS */
+	return res;
 }
 
 
@@ -2169,7 +2193,6 @@ SM_STATE(WPA_PTK, PTKSTART)
 			wpa_printf(MSG_DEBUG,
 				   "FT: No PMKID in message 1/4 when using FT protocol");
 			pmkid = NULL;
-			pmkid_len = 0;
 #endif /* CONFIG_IEEE80211R_AP */
 #ifdef CONFIG_SAE
 		} else if (wpa_key_mgmt_sae(sm->wpa_key_mgmt)) {
@@ -2199,6 +2222,8 @@ SM_STATE(WPA_PTK, PTKSTART)
 				    &pmkid[2 + RSN_SELECTOR_LEN], PMKID_LEN);
 		}
 	}
+	if (!pmkid)
+		pmkid_len = 0;
 	wpa_send_eapol(sm->wpa_auth, sm,
 		       WPA_KEY_INFO_ACK | WPA_KEY_INFO_KEY_TYPE, NULL,
 		       sm->ANonce, pmkid, pmkid_len, 0, 0);
@@ -3139,11 +3164,12 @@ static int ocv_oci_add(struct wpa_state_machine *sm, u8 **argpos)
 
 SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
 {
-	u8 rsc[WPA_KEY_RSC_LEN], *_rsc, *gtk, *kde, *pos, dummy_gtk[32];
+	u8 rsc[WPA_KEY_RSC_LEN], *_rsc, *gtk, *kde = NULL, *pos, dummy_gtk[32];
 	size_t gtk_len, kde_len;
 	struct wpa_group *gsm = sm->group;
 	u8 *wpa_ie;
 	int wpa_ie_len, secure, gtkidx, encr = 0;
+	u8 *wpa_ie_buf = NULL;
 
 	SM_ENTRY_MA(WPA_PTK, PTKINITNEGOTIATING, wpa_ptk);
 	sm->TimeoutEvt = FALSE;
@@ -3177,6 +3203,35 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
 			wpa_ie = wpa_ie + wpa_ie[1] + 2;
 		wpa_ie_len = wpa_ie[1] + 2;
 	}
+#ifdef CONFIG_TESTING_OPTIONS
+	if (sm->wpa_auth->conf.rsnxe_override_eapol_len) {
+		u8 *obuf = sm->wpa_auth->conf.rsnxe_override_eapol;
+		size_t olen = sm->wpa_auth->conf.rsnxe_override_eapol_len;
+		const u8 *rsnxe;
+
+		wpa_hexdump(MSG_DEBUG,
+			    "TESTING: wpa_ie before RSNXE EAPOL override",
+			    wpa_ie, wpa_ie_len);
+		wpa_ie_buf = os_malloc(wpa_ie_len + olen);
+		if (!wpa_ie_buf)
+			return;
+		os_memcpy(wpa_ie_buf, wpa_ie, wpa_ie_len);
+		wpa_ie = wpa_ie_buf;
+		rsnxe = get_ie(wpa_ie, wpa_ie_len, WLAN_EID_RSNX);
+		if (rsnxe) {
+			u8 rsnxe_len = 2 + rsnxe[1];
+
+			os_memmove((void *) rsnxe, rsnxe + rsnxe_len,
+				   wpa_ie_len - (rsnxe - wpa_ie) - rsnxe_len);
+			wpa_ie_len -= rsnxe_len;
+		}
+		os_memcpy(wpa_ie + wpa_ie_len, obuf, olen);
+		wpa_ie_len += olen;
+		wpa_hexdump(MSG_DEBUG,
+			    "TESTING: wpa_ie after RSNXE EAPOL override",
+			    wpa_ie, wpa_ie_len);
+	}
+#endif /* CONFIG_TESTING_OPTIONS */
 	wpa_auth_logger(sm->wpa_auth, sm->addr, LOGGER_DEBUG,
 			"sending 3/4 msg of 4-Way Handshake");
 	if (sm->wpa == WPA_VERSION_WPA2) {
@@ -3191,7 +3246,7 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
 			 * of GTK in the BSS.
 			 */
 			if (random_get_bytes(dummy_gtk, gtk_len) < 0)
-				return;
+				goto done;
 			gtk = dummy_gtk;
 		}
 		gtkidx = gsm->GN;
@@ -3234,7 +3289,7 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
 #endif /* CONFIG_P2P */
 	kde = os_malloc(kde_len);
 	if (kde == NULL)
-		return;
+		goto done;
 
 	pos = kde;
 	os_memcpy(pos, wpa_ie, wpa_ie_len);
@@ -3249,8 +3304,7 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
 		if (res < 0) {
 			wpa_printf(MSG_ERROR, "FT: Failed to insert "
 				   "PMKR1Name into RSN IE in EAPOL-Key data");
-			os_free(kde);
-			return;
+			goto done;
 		}
 		pos -= wpa_ie_len;
 		pos += elen;
@@ -3264,10 +3318,8 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
 				  gtk, gtk_len);
 	}
 	pos = ieee80211w_kde_add(sm, pos);
-	if (ocv_oci_add(sm, &pos) < 0) {
-		os_free(kde);
-		return;
-	}
+	if (ocv_oci_add(sm, &pos) < 0)
+		goto done;
 
 #ifdef CONFIG_IEEE80211R_AP
 	if (wpa_key_mgmt_ft(sm->wpa_key_mgmt)) {
@@ -3293,8 +3345,7 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
 		if (res < 0) {
 			wpa_printf(MSG_ERROR, "FT: Failed to insert FTIE "
 				   "into EAPOL-Key Key Data");
-			os_free(kde);
-			return;
+			goto done;
 		}
 		pos += res;
 
@@ -3331,7 +3382,9 @@ SM_STATE(WPA_PTK, PTKINITNEGOTIATING)
 		       WPA_KEY_INFO_ACK | WPA_KEY_INFO_INSTALL |
 		       WPA_KEY_INFO_KEY_TYPE,
 		       _rsc, sm->ANonce, kde, pos - kde, 0, encr);
+done:
 	os_free(kde);
+	os_free(wpa_ie_buf);
 }
 
 

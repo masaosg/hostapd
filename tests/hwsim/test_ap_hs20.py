@@ -22,6 +22,7 @@ import hwsim_utils
 from tshark import run_tshark
 from wlantest import Wlantest
 from wpasupplicant import WpaSupplicant
+from wlantest import WlantestCapture
 from test_ap_eap import check_eap_capa, check_domain_match_full
 from test_gas import gas_rx, parse_gas, action_response, anqp_initial_resp, send_gas_resp, ACTION_CATEG_PUBLIC, GAS_INITIAL_RESPONSE
 
@@ -917,6 +918,7 @@ def test_ap_hs20_eap_tls(dev, apdev):
     params['nai_realm'] = ["0,example.com,13[5:6]"]
     hostapd.add_ap(apdev[0], params)
 
+    dev[0].flush_scan_cache()
     dev[0].hs20_enable()
     dev[0].add_cred_values({'realm': "example.com",
                             'username': "certificate-user",
@@ -979,6 +981,7 @@ def test_ap_hs20_nai_realms(dev, apdev):
     params['nai_realm'] = ["0,no.match.here;example.com;no.match.here.either,21[2:1][5:7]"]
     hostapd.add_ap(apdev[0], params)
 
+    dev[0].flush_scan_cache()
     dev[0].hs20_enable()
     id = dev[0].add_cred_values({'realm': "example.com",
                                  'ca_cert': "auth_serv/ca.pem",
@@ -996,6 +999,7 @@ def test_ap_hs20_roaming_consortium(dev, apdev):
     params['hessid'] = bssid
     hostapd.add_ap(apdev[0], params)
 
+    dev[0].flush_scan_cache()
     dev[0].hs20_enable()
     for consortium in ["112233", "1020304050", "010203040506", "fedcba"]:
         id = dev[0].add_cred_values({'username': "user",
@@ -1020,6 +1024,7 @@ def test_ap_hs20_roaming_consortiums_match(dev, apdev):
     params['hessid'] = bssid
     hostapd.add_ap(apdev[0], params)
 
+    dev[0].flush_scan_cache()
     dev[0].hs20_enable()
     tests = [("112233", "112233"),
              ("ffffff,1020304050,eeeeee", "1020304050")]
@@ -1441,6 +1446,7 @@ def _test_ap_hs20_gas_while_associated_with_pmf(dev, apdev):
     params['nai_realm'] = ["0,no-match.example.org,13[5:6],21[2:4][5:7]"]
     hostapd.add_ap(apdev[1], params)
 
+    dev[0].flush_scan_cache()
     dev[0].hs20_enable()
     dev[0].request("SET pmf 2")
     id = dev[0].add_cred_values({'realm': "example.com",
@@ -4671,18 +4677,10 @@ def _test_proxyarp_open(dev, apdev, params, ebtables=False):
 
     time.sleep(0.5)
     cmd = {}
-    cmd[0] = subprocess.Popen(['tcpdump', '-p', '-U', '-i', 'ap-br0',
-                               '-w', cap_br, '-s', '2000'],
-                              stderr=open('/dev/null', 'w'))
-    cmd[1] = subprocess.Popen(['tcpdump', '-p', '-U', '-i', dev[0].ifname,
-                               '-w', cap_dev0, '-s', '2000'],
-                              stderr=open('/dev/null', 'w'))
-    cmd[2] = subprocess.Popen(['tcpdump', '-p', '-U', '-i', dev[1].ifname,
-                               '-w', cap_dev1, '-s', '2000'],
-                              stderr=open('/dev/null', 'w'))
-    cmd[3] = subprocess.Popen(['tcpdump', '-p', '-U', '-i', dev[2].ifname,
-                               '-w', cap_dev2, '-s', '2000'],
-                              stderr=open('/dev/null', 'w'))
+    cmd[0] = WlantestCapture('ap-br0', cap_br)
+    cmd[1] = WlantestCapture(dev[0].ifname, cap_dev0)
+    cmd[2] = WlantestCapture(dev[1].ifname, cap_dev1)
+    cmd[3] = WlantestCapture(dev[2].ifname, cap_dev2)
 
     dev[0].connect("open", key_mgmt="NONE", scan_freq="2412")
     dev[1].connect("open", key_mgmt="NONE", scan_freq="2412")
@@ -4875,7 +4873,7 @@ def _test_proxyarp_open(dev, apdev, params, ebtables=False):
     dev[1].request("DISCONNECT")
     time.sleep(1.5)
     for i in range(len(cmd)):
-        cmd[i].terminate()
+        cmd[i].close()
     time.sleep(0.1)
     macs = get_bridge_macs("ap-br0")
     logger.info("After disconnect (showmacs): " + str(macs))
@@ -5019,18 +5017,10 @@ def _test_proxyarp_open_ipv6(dev, apdev, params, ebtables=False):
 
     time.sleep(0.5)
     cmd = {}
-    cmd[0] = subprocess.Popen(['tcpdump', '-p', '-U', '-i', 'ap-br0',
-                               '-w', cap_br, '-s', '2000'],
-                              stderr=open('/dev/null', 'w'))
-    cmd[1] = subprocess.Popen(['tcpdump', '-p', '-U', '-i', dev[0].ifname,
-                               '-w', cap_dev0, '-s', '2000'],
-                              stderr=open('/dev/null', 'w'))
-    cmd[2] = subprocess.Popen(['tcpdump', '-p', '-U', '-i', dev[1].ifname,
-                               '-w', cap_dev1, '-s', '2000'],
-                              stderr=open('/dev/null', 'w'))
-    cmd[3] = subprocess.Popen(['tcpdump', '-p', '-U', '-i', dev[2].ifname,
-                               '-w', cap_dev2, '-s', '2000'],
-                              stderr=open('/dev/null', 'w'))
+    cmd[0] = WlantestCapture('ap-br0', cap_br)
+    cmd[1] = WlantestCapture(dev[0].ifname, cap_dev0)
+    cmd[2] = WlantestCapture(dev[1].ifname, cap_dev1)
+    cmd[3] = WlantestCapture(dev[2].ifname, cap_dev2)
 
     dev[0].connect("open", key_mgmt="NONE", scan_freq="2412")
     dev[1].connect("open", key_mgmt="NONE", scan_freq="2412")
@@ -5134,7 +5124,7 @@ def _test_proxyarp_open_ipv6(dev, apdev, params, ebtables=False):
     dev[1].request("DISCONNECT")
     time.sleep(0.5)
     for i in range(len(cmd)):
-        cmd[i].terminate()
+        cmd[i].close()
     macs = get_bridge_macs("ap-br0")
     logger.info("After disconnect (showmacs): " + str(macs))
     matches = get_permanent_neighbors("ap-br0")
@@ -5162,7 +5152,12 @@ def _test_proxyarp_open_ipv6(dev, apdev, params, ebtables=False):
 
     if ebtables:
         for req in ns:
-            if req[1] != addr0:
+            if req[1] == bssid and req[0] == "33:33:ff:" + bssid[9:] and \
+               req[3] == 'ff02::1:ff00:300' and req[4] == 'fe80::ff:fe00:300':
+                # At least for now, ignore this special case until the kernel
+                # can be prevented from sending it out.
+                logger.info("dev0: Ignore NS from AP to own local addr: " + str(req))
+            elif req[1] != addr0:
                 raise Exception("Unexpected foreign NS on dev0: " + str(req))
 
     ns = tshark_get_ns(cap_dev1)
@@ -5176,7 +5171,12 @@ def _test_proxyarp_open_ipv6(dev, apdev, params, ebtables=False):
 
     if ebtables:
         for req in ns:
-            if req[1] != addr1:
+            if req[1] == bssid and req[0] == "33:33:ff:" + bssid[9:] and \
+               req[3] == 'ff02::1:ff00:300' and req[4] == 'fe80::ff:fe00:300':
+                # At least for now, ignore this special case until the kernel
+                # can be prevented from sending it out.
+                logger.info("dev1: Ignore NS from AP to own local addr: " + str(req))
+            elif req[1] != addr1:
                 raise Exception("Unexpected foreign NS on dev1: " + str(req))
 
     ns = tshark_get_ns(cap_dev2)

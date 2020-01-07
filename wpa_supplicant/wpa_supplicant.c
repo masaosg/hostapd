@@ -476,6 +476,31 @@ void wpas_flush_fils_hlp_req(struct wpa_supplicant *wpa_s)
 }
 
 
+void wpas_clear_disabled_interface(void *eloop_ctx, void *timeout_ctx)
+{
+	struct wpa_supplicant *wpa_s = eloop_ctx;
+
+	if (wpa_s->wpa_state != WPA_INTERFACE_DISABLED)
+		return;
+	wpa_dbg(wpa_s, MSG_DEBUG, "Clear cached state on disabled interface");
+	wpa_bss_flush(wpa_s);
+}
+
+
+#ifdef CONFIG_TESTING_OPTIONS
+void wpas_clear_driver_signal_override(struct wpa_supplicant *wpa_s)
+{
+	struct driver_signal_override *dso;
+
+	while ((dso = dl_list_first(&wpa_s->drv_signal_override,
+				    struct driver_signal_override, list))) {
+		dl_list_del(&dso->list);
+		os_free(dso);
+	}
+}
+#endif /* CONFIG_TESTING_OPTIONS */
+
+
 static void wpa_supplicant_cleanup(struct wpa_supplicant *wpa_s)
 {
 	int i;
@@ -499,6 +524,13 @@ static void wpa_supplicant_cleanup(struct wpa_supplicant *wpa_s)
 	wpa_s->get_pref_freq_list_override = NULL;
 	wpabuf_free(wpa_s->last_assoc_req_wpa_ie);
 	wpa_s->last_assoc_req_wpa_ie = NULL;
+	os_free(wpa_s->extra_sae_rejected_groups);
+	wpa_s->extra_sae_rejected_groups = NULL;
+	wpabuf_free(wpa_s->rsnxe_override_assoc);
+	wpa_s->rsnxe_override_assoc = NULL;
+	wpabuf_free(wpa_s->rsnxe_override_eapol);
+	wpa_s->rsnxe_override_eapol = NULL;
+	wpas_clear_driver_signal_override(wpa_s);
 #endif /* CONFIG_TESTING_OPTIONS */
 
 	if (wpa_s->conf != NULL) {
@@ -545,6 +577,7 @@ static void wpa_supplicant_cleanup(struct wpa_supplicant *wpa_s)
 #endif /* CONFIG_DELAYED_MIC_ERROR_REPORT */
 
 	eloop_cancel_timeout(wpas_network_reenabled, wpa_s, NULL);
+	eloop_cancel_timeout(wpas_clear_disabled_interface, wpa_s, NULL);
 
 	wpas_wps_deinit(wpa_s);
 
@@ -1972,6 +2005,28 @@ static void wpa_s_setup_sae_pt(struct wpa_config *conf, struct wpa_ssid *ssid)
 }
 
 
+static void wpa_s_clear_sae_rejected(struct wpa_supplicant *wpa_s)
+{
+#if defined(CONFIG_SAE) && defined(CONFIG_SME)
+	os_free(wpa_s->sme.sae_rejected_groups);
+	wpa_s->sme.sae_rejected_groups = NULL;
+#ifdef CONFIG_TESTING_OPTIONS
+	if (wpa_s->extra_sae_rejected_groups) {
+		int i, *groups = wpa_s->extra_sae_rejected_groups;
+
+		for (i = 0; groups[i]; i++) {
+			wpa_printf(MSG_DEBUG,
+				   "TESTING: Indicate rejection of an extra SAE group %d",
+				   groups[i]);
+			int_array_add_unique(&wpa_s->sme.sae_rejected_groups,
+					     groups[i]);
+		}
+	}
+#endif /* CONFIG_TESTING_OPTIONS */
+#endif /* CONFIG_SAE && CONFIG_SME */
+}
+
+
 static void wpas_start_assoc_cb(struct wpa_radio_work *work, int deinit);
 
 /**
@@ -2020,10 +2075,7 @@ void wpa_supplicant_associate(struct wpa_supplicant *wpa_s,
 		}
 	} else {
 #ifdef CONFIG_SAE
-#ifdef CONFIG_SME
-		os_free(wpa_s->sme.sae_rejected_groups);
-		wpa_s->sme.sae_rejected_groups = NULL;
-#endif /* CONFIG_SME */
+		wpa_s_clear_sae_rejected(wpa_s);
 		wpa_s_setup_sae_pt(wpa_s->conf, ssid);
 #endif /* CONFIG_SAE */
 	}
@@ -2357,8 +2409,7 @@ void ibss_mesh_setup_freq(struct wpa_supplicant *wpa_s,
 			return;
 		}
 
-		res = check_40mhz_5g(mode, scan_res, pri_chan->chan,
-				     sec_chan->chan);
+		res = check_40mhz_5g(scan_res, pri_chan, sec_chan);
 		switch (res) {
 		case 0:
 			/* Back to HT20 */
@@ -3005,6 +3056,17 @@ pfs_fail:
 	}
 #endif /* CONFIG_IEEE80211R */
 
+#ifdef CONFIG_TESTING_OPTIONS
+	if (wpa_s->rsnxe_override_assoc &&
+	    wpabuf_len(wpa_s->rsnxe_override_assoc) <=
+	    max_wpa_ie_len - wpa_ie_len) {
+		wpa_printf(MSG_DEBUG, "TESTING: RSNXE AssocReq override");
+		os_memcpy(wpa_ie + wpa_ie_len,
+			  wpabuf_head(wpa_s->rsnxe_override_assoc),
+			  wpabuf_len(wpa_s->rsnxe_override_assoc));
+		wpa_ie_len += wpabuf_len(wpa_s->rsnxe_override_assoc);
+	} else
+#endif /* CONFIG_TESTING_OPTIONS */
 	if (wpa_s->rsnxe_len > 0 &&
 	    wpa_s->rsnxe_len <= max_wpa_ie_len - wpa_ie_len) {
 		os_memcpy(wpa_ie + wpa_ie_len, wpa_s->rsnxe, wpa_s->rsnxe_len);
@@ -4039,10 +4101,7 @@ void wpa_supplicant_select_network(struct wpa_supplicant *wpa_s,
 
 	wpa_s->disconnected = 0;
 	wpa_s->reassociate = 1;
-#if defined(CONFIG_SAE) && defined(CONFIG_SME)
-	os_free(wpa_s->sme.sae_rejected_groups);
-	wpa_s->sme.sae_rejected_groups = NULL;
-#endif /* CONFIG_SAE && CONFIG_SME */
+	wpa_s_clear_sae_rejected(wpa_s);
 	wpa_s->last_owe_group = 0;
 	if (ssid) {
 		ssid->owe_transition_bss_select_count = 0;
@@ -4758,6 +4817,9 @@ wpa_supplicant_alloc(struct wpa_supplicant *parent)
 
 	dl_list_init(&wpa_s->bss_tmp_disallowed);
 	dl_list_init(&wpa_s->fils_hlp_req);
+#ifdef CONFIG_TESTING_OPTIONS
+	dl_list_init(&wpa_s->drv_signal_override);
+#endif /* CONFIG_TESTING_OPTIONS */
 
 	return wpa_s;
 }
@@ -6286,11 +6348,17 @@ static void wpa_supplicant_deinit_iface(struct wpa_supplicant *wpa_s,
 
 	wpa_s->disconnected = 1;
 	if (wpa_s->drv_priv) {
-		wpa_supplicant_deauthenticate(wpa_s,
-					      WLAN_REASON_DEAUTH_LEAVING);
+		/* Don't deauthenticate if WoWLAN is enabled */
+		if (!wpa_drv_get_wowlan(wpa_s)) {
+			wpa_supplicant_deauthenticate(
+				wpa_s, WLAN_REASON_DEAUTH_LEAVING);
 
-		wpa_drv_set_countermeasures(wpa_s, 0);
-		wpa_clear_keys(wpa_s, NULL);
+			wpa_drv_set_countermeasures(wpa_s, 0);
+			wpa_clear_keys(wpa_s, NULL);
+		} else {
+			wpa_msg(wpa_s, MSG_INFO,
+				"Do not deauthenticate as part of interface deinit since WoWLAN is enabled");
+		}
 	}
 
 	wpa_supplicant_cleanup(wpa_s);
@@ -6669,7 +6737,7 @@ struct wpa_global * wpa_supplicant_init(struct wpa_params *params)
 
 	if (params->wpa_debug_file_path)
 		wpa_debug_open_file(params->wpa_debug_file_path);
-	else
+	if (!params->wpa_debug_file_path && !params->wpa_debug_syslog)
 		wpa_debug_setup_stdout();
 	if (params->wpa_debug_syslog)
 		wpa_debug_open_syslog();
@@ -7833,4 +7901,88 @@ int wpas_disable_mac_addr_randomization(struct wpa_supplicant *wpa_s,
 	}
 
 	return 0;
+}
+
+
+int wpa_drv_signal_poll(struct wpa_supplicant *wpa_s,
+			struct wpa_signal_info *si)
+{
+	int res;
+
+	if (!wpa_s->driver->signal_poll)
+		return -1;
+
+	res = wpa_s->driver->signal_poll(wpa_s->drv_priv, si);
+
+#ifdef CONFIG_TESTING_OPTIONS
+	if (res == 0) {
+		struct driver_signal_override *dso;
+
+		dl_list_for_each(dso, &wpa_s->drv_signal_override,
+				 struct driver_signal_override, list) {
+			if (os_memcmp(wpa_s->bssid, dso->bssid,
+				      ETH_ALEN) != 0)
+				continue;
+			wpa_printf(MSG_DEBUG,
+				   "Override driver signal_poll information: current_signal: %d->%d avg_signal: %d->%d avg_beacon_signal: %d->%d current_noise: %d->%d",
+				   si->current_signal,
+				   dso->si_current_signal,
+				   si->avg_signal,
+				   dso->si_avg_signal,
+				   si->avg_beacon_signal,
+				   dso->si_avg_beacon_signal,
+				   si->current_noise,
+				   dso->si_current_noise);
+			si->current_signal = dso->si_current_signal;
+			si->avg_signal = dso->si_avg_signal;
+			si->avg_beacon_signal = dso->si_avg_beacon_signal;
+			si->current_noise = dso->si_current_noise;
+			break;
+		}
+	}
+#endif /* CONFIG_TESTING_OPTIONS */
+
+	return res;
+}
+
+
+struct wpa_scan_results *
+wpa_drv_get_scan_results2(struct wpa_supplicant *wpa_s)
+{
+	struct wpa_scan_results *scan_res;
+#ifdef CONFIG_TESTING_OPTIONS
+	size_t idx;
+#endif /* CONFIG_TESTING_OPTIONS */
+
+	if (!wpa_s->driver->get_scan_results2)
+		return NULL;
+
+	scan_res = wpa_s->driver->get_scan_results2(wpa_s->drv_priv);
+
+#ifdef CONFIG_TESTING_OPTIONS
+	for (idx = 0; scan_res && idx < scan_res->num; idx++) {
+		struct driver_signal_override *dso;
+		struct wpa_scan_res *res = scan_res->res[idx];
+
+		dl_list_for_each(dso, &wpa_s->drv_signal_override,
+				 struct driver_signal_override, list) {
+			if (os_memcmp(res->bssid, dso->bssid, ETH_ALEN) != 0)
+				continue;
+			wpa_printf(MSG_DEBUG,
+				   "Override driver scan signal level %d->%d for "
+				   MACSTR,
+				   res->level, dso->scan_level,
+				   MAC2STR(res->bssid));
+			res->flags |= WPA_SCAN_QUAL_INVALID;
+			if (dso->scan_level < 0)
+				res->flags |= WPA_SCAN_LEVEL_DBM;
+			else
+				res->flags &= ~WPA_SCAN_LEVEL_DBM;
+			res->level = dso->scan_level;
+			break;
+		}
+	}
+#endif /* CONFIG_TESTING_OPTIONS */
+
+	return scan_res;
 }

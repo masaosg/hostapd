@@ -857,6 +857,13 @@ static int rate_match(struct wpa_supplicant *wpa_s, struct wpa_bss *bss,
 					if (debug_print)
 						wpa_dbg(wpa_s, MSG_DEBUG,
 							"   SAE H2E disabled");
+#ifdef CONFIG_TESTING_OPTIONS
+					if (wpa_s->ignore_sae_h2e_only) {
+						wpa_dbg(wpa_s, MSG_DEBUG,
+							"TESTING: Ignore SAE H2E requirement mismatch");
+						continue;
+					}
+#endif /* CONFIG_TESTING_OPTIONS */
 					return 0;
 				}
 				continue;
@@ -1439,8 +1446,9 @@ wpa_supplicant_select_bss(struct wpa_supplicant *wpa_s,
 		wpa_s->owe_transition_select = 0;
 		if (!*selected_ssid)
 			continue;
-		wpa_dbg(wpa_s, MSG_DEBUG, "   selected BSS " MACSTR
+		wpa_dbg(wpa_s, MSG_DEBUG, "   selected %sBSS " MACSTR
 			" ssid='%s'",
+			bss == wpa_s->current_bss ? "current ": "",
 			MAC2STR(bss->bssid),
 			wpa_ssid_txt(bss->ssid, bss->ssid_len));
 		return bss;
@@ -1665,6 +1673,27 @@ static void wpa_supplicant_rsn_preauth_scan_results(
 }
 
 
+static int wpas_get_snr_signal_info(u32 frequency, int avg_signal, int noise)
+{
+	if (noise == WPA_INVALID_NOISE)
+		noise = IS_5GHZ(frequency) ? DEFAULT_NOISE_FLOOR_5GHZ :
+			DEFAULT_NOISE_FLOOR_2GHZ;
+	return avg_signal - noise;
+}
+
+
+static unsigned int
+wpas_get_est_throughput_from_bss_snr(const struct wpa_supplicant *wpa_s,
+				     const struct wpa_bss *bss, int snr)
+{
+	int rate = wpa_bss_get_max_rate(bss);
+	const u8 *ies = (const void *) (bss + 1);
+	size_t ie_len = bss->ie_len ? bss->ie_len : bss->beacon_ie_len;
+
+	return wpas_get_est_tpt(wpa_s, ies, ie_len, rate, snr);
+}
+
+
 static int wpa_supplicant_need_to_roam(struct wpa_supplicant *wpa_s,
 				       struct wpa_bss *selected,
 				       struct wpa_ssid *ssid)
@@ -1673,7 +1702,10 @@ static int wpa_supplicant_need_to_roam(struct wpa_supplicant *wpa_s,
 #ifndef CONFIG_NO_ROAMING
 	int min_diff, diff;
 	int to_5ghz;
-	int cur_est, sel_est;
+	int cur_level;
+	unsigned int cur_est, sel_est;
+	struct wpa_signal_info si;
+	int cur_snr = 0;
 #endif /* CONFIG_NO_ROAMING */
 
 	if (wpa_s->reassociate)
@@ -1724,7 +1756,41 @@ static int wpa_supplicant_need_to_roam(struct wpa_supplicant *wpa_s,
 		return 1;
 	}
 
-	if (selected->est_throughput > current_bss->est_throughput + 5000) {
+	cur_level = current_bss->level;
+	cur_est = current_bss->est_throughput;
+	sel_est = selected->est_throughput;
+
+	/*
+	 * Try to poll the signal from the driver since this will allow to get
+	 * more accurate values. In some cases, there can be big differences
+	 * between the RSSI of the Probe Response frames of the AP we are
+	 * associated with and the Beacon frames we hear from the same AP after
+	 * association. This can happen, e.g., when there are two antennas that
+	 * hear the AP very differently. If the driver chooses to hear the
+	 * Probe Response frames during the scan on the "bad" antenna because
+	 * it wants to save power, but knows to choose the other antenna after
+	 * association, we will hear our AP with a low RSSI as part of the
+	 * scan even when we can hear it decently on the other antenna. To cope
+	 * with this, ask the driver to teach us how it hears the AP. Also, the
+	 * scan results may be a bit old, since we can very quickly get fresh
+	 * information about our currently associated AP.
+	 */
+	if (wpa_drv_signal_poll(wpa_s, &si) == 0 &&
+	    (si.avg_beacon_signal || si.avg_signal)) {
+		cur_level = si.avg_beacon_signal ? si.avg_beacon_signal :
+			si.avg_signal;
+		cur_snr = wpas_get_snr_signal_info(si.frequency, cur_level,
+						   si.current_noise);
+
+		cur_est = wpas_get_est_throughput_from_bss_snr(wpa_s,
+							       current_bss,
+							       cur_snr);
+		wpa_dbg(wpa_s, MSG_DEBUG,
+			"Using signal poll values for the current BSS: level=%d snr=%d est_throughput=%u",
+			cur_level, cur_snr, cur_est);
+	}
+
+	if (sel_est > cur_est + 5000) {
 		wpa_dbg(wpa_s, MSG_DEBUG,
 			"Allow reassociation - selected BSS has better estimated throughput");
 		return 1;
@@ -1732,59 +1798,59 @@ static int wpa_supplicant_need_to_roam(struct wpa_supplicant *wpa_s,
 
 	to_5ghz = selected->freq > 4000 && current_bss->freq < 4000;
 
-	if (current_bss->level < 0 &&
-	    current_bss->level > selected->level + to_5ghz * 2) {
+	if (cur_level < 0 && cur_level > selected->level + to_5ghz * 2 &&
+	    sel_est < cur_est * 1.2) {
 		wpa_dbg(wpa_s, MSG_DEBUG, "Skip roam - Current BSS has better "
 			"signal level");
 		return 0;
 	}
 
-	if (current_bss->est_throughput > selected->est_throughput + 5000) {
+	if (cur_est > sel_est + 5000) {
 		wpa_dbg(wpa_s, MSG_DEBUG,
 			"Skip roam - Current BSS has better estimated throughput");
 		return 0;
 	}
 
-	cur_est = current_bss->est_throughput;
-	sel_est = selected->est_throughput;
-	min_diff = 2;
-	if (current_bss->level < 0) {
-		if (current_bss->level < -85)
-			min_diff = 1;
-		else if (current_bss->level < -80)
-			min_diff = 2;
-		else if (current_bss->level < -75)
-			min_diff = 3;
-		else if (current_bss->level < -70)
-			min_diff = 4;
-		else
-			min_diff = 5;
-		if (cur_est > sel_est * 1.5)
-			min_diff += 10;
-		else if (cur_est > sel_est * 1.2)
-			min_diff += 5;
-		else if (cur_est > sel_est * 1.1)
-			min_diff += 2;
-		else if (cur_est > sel_est)
-			min_diff++;
+	if (cur_snr > GREAT_SNR) {
+		wpa_dbg(wpa_s, MSG_DEBUG,
+			"Skip roam - Current BSS has good SNR (%u > %u)",
+			cur_snr, GREAT_SNR);
+		return 0;
 	}
-	if (to_5ghz) {
-		int reduce = 2;
 
-		/* Make it easier to move to 5 GHz band */
-		if (sel_est > cur_est * 1.5)
-			reduce = 5;
-		else if (sel_est > cur_est * 1.2)
-			reduce = 4;
-		else if (sel_est > cur_est * 1.1)
-			reduce = 3;
+	if (cur_level < -85) /* ..-86 dBm */
+		min_diff = 1;
+	else if (cur_level < -80) /* -85..-81 dBm */
+		min_diff = 2;
+	else if (cur_level < -75) /* -80..-76 dBm */
+		min_diff = 3;
+	else if (cur_level < -70) /* -75..-71 dBm */
+		min_diff = 4;
+	else if (cur_level < 0) /* -70..-1 dBm */
+		min_diff = 5;
+	else /* unspecified units (not in dBm) */
+		min_diff = 2;
 
-		if (min_diff > reduce)
-			min_diff -= reduce;
-		else
-			min_diff = 0;
-	}
-	diff = abs(current_bss->level - selected->level);
+	if (cur_est > sel_est * 1.5)
+		min_diff += 10;
+	else if (cur_est > sel_est * 1.2)
+		min_diff += 5;
+	else if (cur_est > sel_est * 1.1)
+		min_diff += 2;
+	else if (cur_est > sel_est)
+		min_diff++;
+	else if (sel_est > cur_est * 1.5)
+		min_diff -= 10;
+	else if (sel_est > cur_est * 1.2)
+		min_diff -= 5;
+	else if (sel_est > cur_est * 1.1)
+		min_diff -= 2;
+	else if (sel_est > cur_est)
+		min_diff--;
+
+	if (to_5ghz)
+		min_diff -= 2;
+	diff = selected->level - cur_level;
 	if (diff < min_diff) {
 		wpa_dbg(wpa_s, MSG_DEBUG,
 			"Skip roam - too small difference in signal level (%d < %d)",
@@ -1914,7 +1980,7 @@ static int _wpa_supplicant_event_scan_results(struct wpa_supplicant *wpa_s,
 	if (wnm_scan_process(wpa_s, 1) > 0)
 		goto scan_work_done;
 
-	if (sme_proc_obss_scan(wpa_s) > 0)
+	if (sme_proc_obss_scan(wpa_s, scan_res) > 0)
 		goto scan_work_done;
 
 	if (own_request && data &&
@@ -2187,7 +2253,8 @@ int wpa_supplicant_fast_associate(struct wpa_supplicant *wpa_s)
 		return -1;
 
 	os_get_reltime(&now);
-	if (os_reltime_expired(&now, &wpa_s->last_scan, 5)) {
+	if (os_reltime_expired(&now, &wpa_s->last_scan,
+			       SCAN_RES_VALID_FOR_CONNECT)) {
 		wpa_printf(MSG_DEBUG, "Fast associate: Old scan results");
 		return -1;
 	}
@@ -2939,6 +3006,16 @@ static void wpa_supplicant_event_assoc(struct wpa_supplicant *wpa_s,
 
 	wpa_s->last_eapol_matches_bssid = 0;
 
+#ifdef CONFIG_TESTING_OPTIONS
+	if (wpa_s->rsnxe_override_eapol) {
+		wpa_printf(MSG_DEBUG,
+			   "TESTING: RSNXE EAPOL-Key msg 2/4 override");
+		wpa_sm_set_assoc_rsnxe(wpa_s->wpa,
+				       wpabuf_head(wpa_s->rsnxe_override_eapol),
+				       wpabuf_len(wpa_s->rsnxe_override_eapol));
+	}
+#endif /* CONFIG_TESTING_OPTIONS */
+
 	if (wpa_s->pending_eapol_rx) {
 		struct os_reltime now, age;
 		os_get_reltime(&now);
@@ -3054,9 +3131,10 @@ static int could_be_psk_mismatch(struct wpa_supplicant *wpa_s, u16 reason_code,
 				 int locally_generated)
 {
 	if (wpa_s->wpa_state != WPA_4WAY_HANDSHAKE ||
+	    !wpa_s->new_connection ||
 	    !wpa_key_mgmt_wpa_psk(wpa_s->key_mgmt) ||
 	    wpa_key_mgmt_sae(wpa_s->key_mgmt))
-		return 0; /* Not in 4-way handshake with PSK */
+		return 0; /* Not in initial 4-way handshake with PSK */
 
 	/*
 	 * It looks like connection was lost while trying to go through PSK
@@ -4244,6 +4322,7 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 {
 	struct wpa_supplicant *wpa_s = ctx;
 	int resched;
+	struct os_reltime age, clear_at;
 #ifndef CONFIG_NO_STDOUT_DEBUG
 	int level = MSG_DEBUG;
 #endif /* CONFIG_NO_STDOUT_DEBUG */
@@ -4546,6 +4625,20 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 		wpa_s->assoc_freq = data->ch_switch.freq;
 		wpa_s->current_ssid->frequency = data->ch_switch.freq;
 
+#ifdef CONFIG_SME
+		switch (data->ch_switch.ch_offset) {
+		case 1:
+			wpa_s->sme.ht_sec_chan = HT_SEC_CHAN_ABOVE;
+			break;
+		case -1:
+			wpa_s->sme.ht_sec_chan = HT_SEC_CHAN_BELOW;
+			break;
+		default:
+			wpa_s->sme.ht_sec_chan = HT_SEC_CHAN_UNKNOWN;
+			break;
+		}
+#endif /* CONFIG_SME */
+
 #ifdef CONFIG_AP
 		if (wpa_s->current_ssid->mode == WPAS_MODE_AP ||
 		    wpa_s->current_ssid->mode == WPAS_MODE_P2P_GO ||
@@ -4768,6 +4861,8 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 	case EVENT_INTERFACE_ENABLED:
 		wpa_dbg(wpa_s, MSG_DEBUG, "Interface was enabled");
 		if (wpa_s->wpa_state == WPA_INTERFACE_DISABLED) {
+			eloop_cancel_timeout(wpas_clear_disabled_interface,
+					     wpa_s, NULL);
 			wpa_supplicant_update_mac_addr(wpa_s);
 			wpa_supplicant_set_default_scan_ies(wpa_s);
 			if (wpa_s->p2p_mgmt) {
@@ -4836,7 +4931,20 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 				wpa_s, WLAN_REASON_DEAUTH_LEAVING, 1);
 		}
 		wpa_supplicant_mark_disassoc(wpa_s);
-		wpa_bss_flush(wpa_s);
+		os_reltime_age(&wpa_s->last_scan, &age);
+		if (age.sec >= SCAN_RES_VALID_FOR_CONNECT) {
+			clear_at.sec = SCAN_RES_VALID_FOR_CONNECT;
+			clear_at.usec = 0;
+		} else {
+			struct os_reltime tmp;
+
+			tmp.sec = SCAN_RES_VALID_FOR_CONNECT;
+			tmp.usec = 0;
+			os_reltime_sub(&tmp, &age, &clear_at);
+		}
+		eloop_register_timeout(clear_at.sec, clear_at.usec,
+				       wpas_clear_disabled_interface,
+				       wpa_s, NULL);
 		radio_remove_works(wpa_s, NULL, 0);
 
 		wpa_supplicant_set_state(wpa_s, WPA_INTERFACE_DISABLED);

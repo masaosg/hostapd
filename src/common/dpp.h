@@ -106,6 +106,7 @@ struct dpp_curve_params {
 enum dpp_bootstrap_type {
 	DPP_BOOTSTRAP_QR_CODE,
 	DPP_BOOTSTRAP_PKEX,
+	DPP_BOOTSTRAP_NFC_URI,
 };
 
 struct dpp_bootstrap_info {
@@ -164,6 +165,7 @@ enum dpp_akm {
 enum dpp_netrole {
 	DPP_NETROLE_STA,
 	DPP_NETROLE_AP,
+	DPP_NETROLE_CONFIGURATOR,
 };
 
 struct dpp_configuration {
@@ -414,7 +416,6 @@ int dpp_parse_uri_chan_list(struct dpp_bootstrap_info *bi,
 			    const char *chan_list);
 int dpp_parse_uri_mac(struct dpp_bootstrap_info *bi, const char *mac);
 int dpp_parse_uri_info(struct dpp_bootstrap_info *bi, const char *info);
-struct dpp_bootstrap_info * dpp_parse_qr_code(const char *uri);
 char * dpp_keygen(struct dpp_bootstrap_info *bi, const char *curve,
 		  const u8 *privkey, size_t privkey_len);
 struct hostapd_hw_modes;
@@ -437,7 +438,8 @@ dpp_auth_resp_rx(struct dpp_authentication *auth, const u8 *hdr,
 struct wpabuf * dpp_build_conf_req(struct dpp_authentication *auth,
 				   const char *json);
 struct wpabuf * dpp_build_conf_req_helper(struct dpp_authentication *auth,
-					  const char *name, int netrole_ap,
+					  const char *name,
+					  enum dpp_netrole netrole,
 					  const char *mud_url, int *opclasses);
 int dpp_auth_conf_rx(struct dpp_authentication *auth, const u8 *hdr,
 		     const u8 *attr_start, size_t attr_len);
@@ -533,6 +535,8 @@ int dpp_pfs_process(struct dpp_pfs *pfs, const u8 *peer_ie, size_t peer_ie_len);
 void dpp_pfs_free(struct dpp_pfs *pfs);
 
 struct dpp_bootstrap_info * dpp_add_qr_code(struct dpp_global *dpp,
+					    const char *uri);
+struct dpp_bootstrap_info * dpp_add_nfc_uri(struct dpp_global *dpp,
 					    const char *uri);
 int dpp_bootstrap_gen(struct dpp_global *dpp, const char *cmd);
 struct dpp_bootstrap_info *

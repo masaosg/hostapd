@@ -4118,11 +4118,40 @@ def int_eap_server_params():
               "dh_file": "auth_serv/dh.conf"}
     return params
 
+def run_openssl(arg):
+    logger.info(' '.join(arg))
+    cmd = subprocess.Popen(arg, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE)
+    res = cmd.stdout.read().decode() + "\n" + cmd.stderr.read().decode()
+    cmd.stdout.close()
+    cmd.stderr.close()
+    cmd.wait()
+    if cmd.returncode != 0:
+        raise Exception("bad return code from openssl\n\n" + res)
+    logger.info("openssl result:\n" + res)
+
+def ocsp_cache_key_id(outfile):
+    if os.path.exists(outfile):
+        return
+    arg = ["openssl", "ocsp", "-index", "auth_serv/index.txt",
+           '-rsigner', 'auth_serv/ocsp-responder.pem',
+           '-rkey', 'auth_serv/ocsp-responder.key',
+           '-resp_key_id',
+           '-CA', 'auth_serv/ca.pem',
+           '-issuer', 'auth_serv/ca.pem',
+           '-verify_other', 'auth_serv/ca.pem',
+           '-trust_other',
+           '-ndays', '7',
+           '-reqin', 'auth_serv/ocsp-req.der',
+           '-respout', outfile]
+    run_openssl(arg)
+
 def test_ap_wpa2_eap_tls_ocsp_key_id(dev, apdev, params):
     """EAP-TLS and OCSP certificate signed OCSP response using key ID"""
     check_ocsp_support(dev[0])
     check_pkcs12_support(dev[0])
     ocsp = os.path.join(params['logdir'], "ocsp-server-cache-key-id.der")
+    ocsp_cache_key_id(ocsp)
     if not os.path.exists(ocsp):
         raise HwsimSkip("No OCSP response available")
     params = int_eap_server_params()
@@ -4134,13 +4163,59 @@ def test_ap_wpa2_eap_tls_ocsp_key_id(dev, apdev, params):
                    private_key_passwd="whatever", ocsp=2,
                    scan_freq="2412")
 
+def ocsp_req(outfile):
+    if os.path.exists(outfile):
+        return
+    arg = ["openssl", "ocsp",
+           "-reqout", outfile,
+           '-issuer', 'auth_serv/ca.pem',
+           '-sha256',
+           '-serial', '0xD8D3E3A6CBE3CD1F',
+           '-no_nonce']
+    run_openssl(arg)
+    if not os.path.exists(outfile):
+        raise HwsimSkip("Failed to generate OCSP request")
+
+def ocsp_resp_ca_signed(reqfile, outfile, status):
+    ocsp_req(reqfile)
+    if os.path.exists(outfile):
+        return
+    arg = ["openssl", "ocsp",
+           "-index", "auth_serv/index%s.txt" % status,
+	   "-rsigner", "auth_serv/ca.pem",
+	   "-rkey", "auth_serv/ca-key.pem",
+	   "-CA", "auth_serv/ca.pem",
+	   "-ndays", "7",
+	   "-reqin", reqfile,
+	   "-resp_no_certs",
+	   "-respout", outfile]
+    run_openssl(arg)
+    if not os.path.exists(outfile):
+        raise HwsimSkip("No OCSP response available")
+
+def ocsp_resp_server_signed(reqfile, outfile):
+    ocsp_req(reqfile)
+    if os.path.exists(outfile):
+        return
+    arg = ["openssl", "ocsp",
+           "-index", "auth_serv/index.txt",
+	   "-rsigner", "auth_serv/server.pem",
+	   "-rkey", "auth_serv/server.key",
+	   "-CA", "auth_serv/ca.pem",
+	   "-ndays", "7",
+	   "-reqin", reqfile,
+	   "-respout", outfile]
+    run_openssl(arg)
+    if not os.path.exists(outfile):
+        raise HwsimSkip("No OCSP response available")
+
 def test_ap_wpa2_eap_tls_ocsp_ca_signed_good(dev, apdev, params):
     """EAP-TLS and CA signed OCSP response (good)"""
     check_ocsp_support(dev[0])
     check_pkcs12_support(dev[0])
+    req = os.path.join(params['logdir'], "ocsp-req.der")
     ocsp = os.path.join(params['logdir'], "ocsp-resp-ca-signed.der")
-    if not os.path.exists(ocsp):
-        raise HwsimSkip("No OCSP response available")
+    ocsp_resp_ca_signed(req, ocsp, "")
     params = int_eap_server_params()
     params["ocsp_stapling_response"] = ocsp
     hostapd.add_ap(apdev[0], params)
@@ -4154,9 +4229,9 @@ def test_ap_wpa2_eap_tls_ocsp_ca_signed_revoked(dev, apdev, params):
     """EAP-TLS and CA signed OCSP response (revoked)"""
     check_ocsp_support(dev[0])
     check_pkcs12_support(dev[0])
+    req = os.path.join(params['logdir'], "ocsp-req.der")
     ocsp = os.path.join(params['logdir'], "ocsp-resp-ca-signed-revoked.der")
-    if not os.path.exists(ocsp):
-        raise HwsimSkip("No OCSP response available")
+    ocsp_resp_ca_signed(req, ocsp, "-revoked")
     params = int_eap_server_params()
     params["ocsp_stapling_response"] = ocsp
     hostapd.add_ap(apdev[0], params)
@@ -4186,9 +4261,9 @@ def test_ap_wpa2_eap_tls_ocsp_ca_signed_unknown(dev, apdev, params):
     """EAP-TLS and CA signed OCSP response (unknown)"""
     check_ocsp_support(dev[0])
     check_pkcs12_support(dev[0])
+    req = os.path.join(params['logdir'], "ocsp-req.der")
     ocsp = os.path.join(params['logdir'], "ocsp-resp-ca-signed-unknown.der")
-    if not os.path.exists(ocsp):
-        raise HwsimSkip("No OCSP response available")
+    ocsp_resp_ca_signed(req, ocsp, "-unknown")
     params = int_eap_server_params()
     params["ocsp_stapling_response"] = ocsp
     hostapd.add_ap(apdev[0], params)
@@ -4216,9 +4291,9 @@ def test_ap_wpa2_eap_tls_ocsp_server_signed(dev, apdev, params):
     """EAP-TLS and server signed OCSP response"""
     check_ocsp_support(dev[0])
     check_pkcs12_support(dev[0])
+    req = os.path.join(params['logdir'], "ocsp-req.der")
     ocsp = os.path.join(params['logdir'], "ocsp-resp-server-signed.der")
-    if not os.path.exists(ocsp):
-        raise HwsimSkip("No OCSP response available")
+    ocsp_resp_server_signed(req, ocsp)
     params = int_eap_server_params()
     params["ocsp_stapling_response"] = ocsp
     hostapd.add_ap(apdev[0], params)
@@ -4323,10 +4398,26 @@ def test_ap_wpa2_eap_tls_ocsp_unknown_sign(dev, apdev):
     if ev is None:
         raise Exception("Timeout on EAP failure report")
 
+def ocsp_resp_status(outfile, status):
+    if os.path.exists(outfile):
+        return
+    arg = ["openssl", "ocsp", "-index", "auth_serv/index-%s.txt" % status,
+           '-rsigner', 'auth_serv/ocsp-responder.pem',
+           '-rkey', 'auth_serv/ocsp-responder.key',
+           '-CA', 'auth_serv/ca.pem',
+           '-issuer', 'auth_serv/ca.pem',
+           '-verify_other', 'auth_serv/ca.pem',
+           '-trust_other',
+           '-ndays', '7',
+           '-reqin', 'auth_serv/ocsp-req.der',
+           '-respout', outfile]
+    run_openssl(arg)
+
 def test_ap_wpa2_eap_ttls_ocsp_revoked(dev, apdev, params):
     """WPA2-Enterprise connection using EAP-TTLS and OCSP status revoked"""
     check_ocsp_support(dev[0])
     ocsp = os.path.join(params['logdir'], "ocsp-server-cache-revoked.der")
+    ocsp_resp_status(ocsp, "revoked")
     if not os.path.exists(ocsp):
         raise HwsimSkip("No OCSP response available")
     params = int_eap_server_params()
@@ -4355,9 +4446,10 @@ def test_ap_wpa2_eap_ttls_ocsp_revoked(dev, apdev, params):
         raise Exception("Timeout on EAP failure report")
 
 def test_ap_wpa2_eap_ttls_ocsp_unknown(dev, apdev, params):
-    """WPA2-Enterprise connection using EAP-TTLS and OCSP status revoked"""
+    """WPA2-Enterprise connection using EAP-TTLS and OCSP status unknown"""
     check_ocsp_support(dev[0])
     ocsp = os.path.join(params['logdir'], "ocsp-server-cache-unknown.der")
+    ocsp_resp_status(ocsp, "unknown")
     if not os.path.exists(ocsp):
         raise HwsimSkip("No OCSP response available")
     params = int_eap_server_params()
@@ -4384,9 +4476,10 @@ def test_ap_wpa2_eap_ttls_ocsp_unknown(dev, apdev, params):
         raise Exception("Timeout on EAP failure report")
 
 def test_ap_wpa2_eap_ttls_optional_ocsp_unknown(dev, apdev, params):
-    """WPA2-Enterprise connection using EAP-TTLS and OCSP status revoked"""
+    """WPA2-Enterprise connection using EAP-TTLS and OCSP status unknown"""
     check_ocsp_support(dev[0])
     ocsp = os.path.join(params['logdir'], "ocsp-server-cache-unknown.der")
+    ocsp_resp_status(ocsp, "unknown")
     if not os.path.exists(ocsp):
         raise HwsimSkip("No OCSP response available")
     params = int_eap_server_params()
@@ -4426,16 +4519,7 @@ def root_ocsp(cert):
 
     arg = ["openssl", "ocsp", "-reqout", fn2, "-issuer", ca, "-sha256",
            "-cert", cert, "-no_nonce", "-text"]
-    logger.info(' '.join(arg))
-    cmd = subprocess.Popen(arg, stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE)
-    res = cmd.stdout.read().decode() + "\n" + cmd.stderr.read().decode()
-    cmd.stdout.close()
-    cmd.stderr.close()
-    cmd.wait()
-    if cmd.returncode != 0:
-        raise Exception("bad return code from openssl ocsp\n\n" + res)
-    logger.info("OCSP request:\n" + res)
+    run_openssl(arg)
 
     fd, fn = tempfile.mkstemp()
     os.close(fd)
@@ -4444,15 +4528,7 @@ def root_ocsp(cert):
            "-CA", ca, "-issuer", ca, "-verify_other", ca, "-trust_other",
            "-ndays", "7", "-reqin", fn2, "-resp_no_certs", "-respout", fn,
            "-text"]
-    cmd = subprocess.Popen(arg, stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE)
-    res = cmd.stdout.read().decode() + "\n" + cmd.stderr.read().decode()
-    cmd.stdout.close()
-    cmd.stderr.close()
-    cmd.wait()
-    if cmd.returncode != 0:
-        raise Exception("bad return code from openssl ocsp\n\n" + res)
-    logger.info("OCSP response:\n" + res)
+    run_openssl(arg)
     os.unlink(fn2)
     return fn
 
@@ -4466,15 +4542,7 @@ def ica_ocsp(cert, md="-sha256"):
 
     arg = ["openssl", "ocsp", "-reqout", fn2, "-issuer", ca, md,
            "-cert", cert, "-no_nonce", "-text"]
-    cmd = subprocess.Popen(arg, stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE)
-    res = cmd.stdout.read().decode() + "\n" + cmd.stderr.read().decode()
-    cmd.stdout.close()
-    cmd.stderr.close()
-    cmd.wait()
-    if cmd.returncode != 0:
-        raise Exception("bad return code from openssl ocsp\n\n" + res)
-    logger.info("OCSP request:\n" + res)
+    run_openssl(arg)
 
     fd, fn = tempfile.mkstemp()
     os.close(fd)
@@ -4483,15 +4551,7 @@ def ica_ocsp(cert, md="-sha256"):
            "-CA", ca, "-issuer", ca, "-verify_other", ca, "-trust_other",
            "-ndays", "7", "-reqin", fn2, "-resp_no_certs", "-respout", fn,
            "-text"]
-    cmd = subprocess.Popen(arg, stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE)
-    res = cmd.stdout.read().decode() + "\n" + cmd.stderr.read().decode()
-    cmd.stdout.close()
-    cmd.stderr.close()
-    cmd.wait()
-    if cmd.returncode != 0:
-        raise Exception("bad return code from openssl ocsp\n\n" + res)
-    logger.info("OCSP response:\n" + res)
+    run_openssl(arg)
     os.unlink(fn2)
     return fn
 
@@ -4691,14 +4751,13 @@ def test_ap_wpa2_eap_tls_ocsp_multi_revoked(dev, apdev, params):
     check_ocsp_multi_support(dev[0])
     check_pkcs12_support(dev[0])
 
+    req = os.path.join(params['logdir'], "ocsp-req.der")
     ocsp_revoked = os.path.join(params['logdir'],
                                 "ocsp-resp-ca-signed-revoked.der")
-    if not os.path.exists(ocsp_revoked):
-        raise HwsimSkip("No OCSP response (revoked) available")
     ocsp_unknown = os.path.join(params['logdir'],
                                 "ocsp-resp-ca-signed-unknown.der")
-    if not os.path.exists(ocsp_unknown):
-        raise HwsimSkip("No OCSP response(unknown) available")
+    ocsp_resp_ca_signed(req, ocsp_revoked, "-revoked")
+    ocsp_resp_ca_signed(req, ocsp_unknown, "-unknown")
 
     with open(ocsp_revoked, "rb") as f:
         resp_revoked = f.read()
@@ -7191,3 +7250,20 @@ def test_ap_wpa2_eap_tls_tod_tofu(dev, apdev):
         raise Exception("TOD-TOFU policy not reported for server certificate")
     if tod1:
         raise Exception("TOD-TOFU policy unexpectedly reported for CA certificate")
+
+def test_ap_wpa2_eap_sake_no_control_port(dev, apdev):
+    """WPA2-Enterprise connection using EAP-SAKE without nl80211 control port"""
+    params = hostapd.wpa2_eap_params(ssid="test-wpa2-eap")
+    params['driver_params'] = "control_port=0"
+    hapd = hostapd.add_ap(apdev[0], params)
+    wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
+    wpas.interface_add("wlan5", drv_params="control_port=0")
+    eap_connect(wpas, hapd, "SAKE", "sake user",
+                password_hex="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+    eap_reauth(wpas, "SAKE")
+
+    logger.info("Negative test with incorrect password")
+    wpas.request("REMOVE_NETWORK all")
+    eap_connect(wpas, hapd, "SAKE", "sake user",
+                password_hex="ff23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                expect_failure=True)

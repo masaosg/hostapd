@@ -11,7 +11,11 @@
 #ifndef CONFIG_NATIVE_WINDOWS
 
 #ifdef CONFIG_TESTING_OPTIONS
+#ifdef __NetBSD__
+#include <net/if_ether.h>
+#else
 #include <net/ethernet.h>
+#endif
 #include <netinet/ip.h>
 #endif /* CONFIG_TESTING_OPTIONS */
 
@@ -1658,7 +1662,7 @@ static int hostapd_ctrl_iface_mgmt_tx(struct hostapd_data *hapd, char *cmd)
 		return -1;
 	}
 
-	res = hostapd_drv_send_mlme(hapd, buf, len, 0);
+	res = hostapd_drv_send_mlme(hapd, buf, len, 0, NULL, 0, 0);
 	os_free(buf);
 	return res;
 }
@@ -1857,7 +1861,7 @@ static void hostapd_data_test_rx(void *ctx, const u8 *src_addr, const u8 *buf,
 {
 	struct hostapd_data *hapd = ctx;
 	const struct ether_header *eth;
-	struct iphdr ip;
+	struct ip ip;
 	const u8 *pos;
 	unsigned int i;
 	char extra[30];
@@ -1873,14 +1877,14 @@ static void hostapd_data_test_rx(void *ctx, const u8 *src_addr, const u8 *buf,
 	os_memcpy(&ip, eth + 1, sizeof(ip));
 	pos = &buf[sizeof(*eth) + sizeof(ip)];
 
-	if (ip.ihl != 5 || ip.version != 4 ||
-	    ntohs(ip.tot_len) > HWSIM_IP_LEN) {
+	if (ip.ip_hl != 5 || ip.ip_v != 4 ||
+	    ntohs(ip.ip_len) > HWSIM_IP_LEN) {
 		wpa_printf(MSG_DEBUG,
 			   "test data: RX - ignore unexpect IP header");
 		return;
 	}
 
-	for (i = 0; i < ntohs(ip.tot_len) - sizeof(ip); i++) {
+	for (i = 0; i < ntohs(ip.ip_len) - sizeof(ip); i++) {
 		if (*pos != (u8) i) {
 			wpa_printf(MSG_DEBUG,
 				   "test data: RX - ignore mismatching payload");
@@ -1890,8 +1894,8 @@ static void hostapd_data_test_rx(void *ctx, const u8 *src_addr, const u8 *buf,
 	}
 
 	extra[0] = '\0';
-	if (ntohs(ip.tot_len) != HWSIM_IP_LEN)
-		os_snprintf(extra, sizeof(extra), " len=%d", ntohs(ip.tot_len));
+	if (ntohs(ip.ip_len) != HWSIM_IP_LEN)
+		os_snprintf(extra, sizeof(extra), " len=%d", ntohs(ip.ip_len));
 	wpa_msg(hapd->msg_ctx, MSG_INFO, "DATA-TEST-RX " MACSTR " " MACSTR "%s",
 		MAC2STR(eth->ether_dhost), MAC2STR(eth->ether_shost), extra);
 }
@@ -1944,7 +1948,7 @@ static int hostapd_ctrl_iface_data_test_tx(struct hostapd_data *hapd, char *cmd)
 	u8 tos;
 	u8 buf[2 + HWSIM_PACKETLEN];
 	struct ether_header *eth;
-	struct iphdr *ip;
+	struct ip *ip;
 	u8 *dpos;
 	unsigned int i;
 	size_t send_len = HWSIM_IP_LEN;
@@ -1983,17 +1987,17 @@ static int hostapd_ctrl_iface_data_test_tx(struct hostapd_data *hapd, char *cmd)
 	os_memcpy(eth->ether_dhost, dst, ETH_ALEN);
 	os_memcpy(eth->ether_shost, src, ETH_ALEN);
 	eth->ether_type = htons(ETHERTYPE_IP);
-	ip = (struct iphdr *) (eth + 1);
+	ip = (struct ip *) (eth + 1);
 	os_memset(ip, 0, sizeof(*ip));
-	ip->ihl = 5;
-	ip->version = 4;
-	ip->ttl = 64;
-	ip->tos = tos;
-	ip->tot_len = htons(send_len);
-	ip->protocol = 1;
-	ip->saddr = htonl(192U << 24 | 168 << 16 | 1 << 8 | 1);
-	ip->daddr = htonl(192U << 24 | 168 << 16 | 1 << 8 | 2);
-	ip->check = ipv4_hdr_checksum(ip, sizeof(*ip));
+	ip->ip_hl = 5;
+	ip->ip_v = 4;
+	ip->ip_ttl = 64;
+	ip->ip_tos = tos;
+	ip->ip_len = htons(send_len);
+	ip->ip_p = 1;
+	ip->ip_src.s_addr = htonl(192U << 24 | 168 << 16 | 1 << 8 | 1);
+	ip->ip_dst.s_addr = htonl(192U << 24 | 168 << 16 | 1 << 8 | 2);
+	ip->ip_sum = ipv4_hdr_checksum(ip, sizeof(*ip));
 	dpos = (u8 *) (ip + 1);
 	for (i = 0; i < send_len - sizeof(*ip); i++)
 		*dpos++ = i;
@@ -2707,6 +2711,20 @@ static int hostapd_ctrl_iface_req_beacon(struct hostapd_data *hapd,
 }
 
 
+static int hostapd_ctrl_iface_show_neighbor(struct hostapd_data *hapd,
+					    char *buf, size_t buflen)
+{
+	if (!(hapd->conf->radio_measurements[0] &
+	      WLAN_RRM_CAPS_NEIGHBOR_REPORT)) {
+		wpa_printf(MSG_ERROR,
+			   "CTRL: SHOW_NEIGHBOR: Neighbor report is not enabled");
+		return -1;
+	}
+
+	return hostapd_neighbor_show(hapd, buf, buflen);
+}
+
+
 static int hostapd_ctrl_iface_set_neighbor(struct hostapd_data *hapd, char *buf)
 {
 	struct wpa_ssid_value ssid;
@@ -2813,6 +2831,7 @@ static int hostapd_ctrl_iface_remove_neighbor(struct hostapd_data *hapd,
 					      char *buf)
 {
 	struct wpa_ssid_value ssid;
+	struct wpa_ssid_value *ssidp = NULL;
 	u8 bssid[ETH_ALEN];
 	char *tmp;
 
@@ -2822,13 +2841,16 @@ static int hostapd_ctrl_iface_remove_neighbor(struct hostapd_data *hapd,
 	}
 
 	tmp = os_strstr(buf, "ssid=");
-	if (!tmp || ssid_parse(tmp + 5, &ssid)) {
-		wpa_printf(MSG_ERROR,
-			   "CTRL: REMOVE_NEIGHBORr: Bad or missing SSID");
-		return -1;
+	if (tmp) {
+		ssidp = &ssid;
+		if (ssid_parse(tmp + 5, &ssid)) {
+			wpa_printf(MSG_ERROR,
+				   "CTRL: REMOVE_NEIGHBOR: Bad SSID");
+			return -1;
+		}
 	}
 
-	return hostapd_neighbor_remove(hapd, bssid, &ssid);
+	return hostapd_neighbor_remove(hapd, bssid, ssidp);
 }
 
 
@@ -3251,6 +3273,9 @@ static int hostapd_ctrl_iface_receive_process(struct hostapd_data *hapd,
 	} else if (os_strncmp(buf, "SET_NEIGHBOR ", 13) == 0) {
 		if (hostapd_ctrl_iface_set_neighbor(hapd, buf + 13))
 			reply_len = -1;
+	} else if (os_strcmp(buf, "SHOW_NEIGHBOR") == 0) {
+		reply_len = hostapd_ctrl_iface_show_neighbor(hapd, reply,
+							     reply_size);
 	} else if (os_strncmp(buf, "REMOVE_NEIGHBOR ", 16) == 0) {
 		if (hostapd_ctrl_iface_remove_neighbor(hapd, buf + 16))
 			reply_len = -1;
@@ -3311,6 +3336,15 @@ static int hostapd_ctrl_iface_receive_process(struct hostapd_data *hapd,
 #ifdef CONFIG_DPP
 	} else if (os_strncmp(buf, "DPP_QR_CODE ", 12) == 0) {
 		res = hostapd_dpp_qr_code(hapd, buf + 12);
+		if (res < 0) {
+			reply_len = -1;
+		} else {
+			reply_len = os_snprintf(reply, reply_size, "%d", res);
+			if (os_snprintf_error(reply_size, reply_len))
+				reply_len = -1;
+		}
+	} else if (os_strncmp(buf, "DPP_NFC_URI ", 12) == 0) {
+		res = hostapd_dpp_nfc_uri(hapd, buf + 12);
 		if (res < 0) {
 			reply_len = -1;
 		} else {

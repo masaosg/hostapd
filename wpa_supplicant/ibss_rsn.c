@@ -64,10 +64,16 @@ static int supp_ether_send(void *ctx, const u8 *dest, u16 proto, const u8 *buf,
 {
 	struct ibss_rsn_peer *peer = ctx;
 	struct wpa_supplicant *wpa_s = peer->ibss_rsn->wpa_s;
+	int encrypt = peer->authentication_status & IBSS_RSN_REPORTED_PTK;
 
-	wpa_printf(MSG_DEBUG, "SUPP: %s(dest=" MACSTR " proto=0x%04x "
-		   "len=%lu)",
-		   __func__, MAC2STR(dest), proto, (unsigned long) len);
+	wpa_printf(MSG_DEBUG, "SUPP: %s(dest=" MACSTR
+		   " proto=0x%04x len=%lu no_encrypt=%d)",
+		   __func__, MAC2STR(dest), proto, (unsigned long) len,
+		   !encrypt);
+
+	if (wpa_s->drv_flags & WPA_DRIVER_FLAGS_CONTROL_PORT)
+		return wpa_drv_tx_control_port(wpa_s, dest, proto, buf, len,
+					       !encrypt);
 
 	if (wpa_s->l2)
 		return l2_packet_send(wpa_s->l2, dest, proto, buf, len);
@@ -487,9 +493,6 @@ static int ibss_rsn_send_auth(struct ibss_rsn *ibss_rsn, const u8 *da, int seq)
 	const size_t auth_length = IEEE80211_HDRLEN + sizeof(auth.u.auth);
 	struct wpa_supplicant *wpa_s = ibss_rsn->wpa_s;
 
-	if (wpa_s->driver->send_frame == NULL)
-		return -1;
-
 	os_memset(&auth, 0, sizeof(auth));
 
 	auth.frame_control = IEEE80211_FC(WLAN_FC_TYPE_MGMT,
@@ -505,8 +508,7 @@ static int ibss_rsn_send_auth(struct ibss_rsn *ibss_rsn, const u8 *da, int seq)
 	wpa_printf(MSG_DEBUG, "RSN: IBSS TX Auth frame (SEQ %d) to " MACSTR,
 		   seq, MAC2STR(da));
 
-	return wpa_s->driver->send_frame(wpa_s->drv_priv, (u8 *) &auth,
-					 auth_length, 0);
+	return wpa_drv_send_mlme(wpa_s, (u8 *) &auth, auth_length, 0, 0);
 }
 
 

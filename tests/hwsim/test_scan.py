@@ -467,11 +467,30 @@ def test_scan_for_auth_wep(dev, apdev):
 @remote_compatible
 def test_scan_hidden(dev, apdev):
     """Control interface behavior on scan parameters"""
-    hapd = hostapd.add_ap(apdev[0], {"ssid": "test-scan",
+    dev[0].flush_scan_cache()
+    ssid = "test-scan"
+    wrong_ssid = "wrong"
+    hapd = hostapd.add_ap(apdev[0], {"ssid": ssid,
                                      "ignore_broadcast_ssid": "1"})
     bssid = apdev[0]['bssid']
 
     check_scan(dev[0], "freq=2412 use_id=1")
+    try:
+        payload = struct.pack('BB', 0, len(wrong_ssid)) + wrong_ssid.encode()
+        ssid_list = struct.pack('BB', 84, len(payload)) + payload
+        cmd = "VENDOR_ELEM_ADD 14 " + binascii.hexlify(ssid_list).decode()
+        if "OK" not in dev[0].request(cmd):
+            raise Exception("VENDOR_ELEM_ADD failed")
+        check_scan(dev[0], "freq=2412 use_id=1")
+
+        payload = struct.pack('<L', binascii.crc32(wrong_ssid.encode()))
+        ssid_list = struct.pack('BBB', 255, 1 + len(payload), 58) + payload
+        cmd = "VENDOR_ELEM_ADD 14 " + binascii.hexlify(ssid_list).decode()
+        if "OK" not in dev[0].request(cmd):
+            raise Exception("VENDOR_ELEM_ADD failed")
+        check_scan(dev[0], "freq=2412 use_id=1")
+    finally:
+        dev[0].request("VENDOR_ELEM_REMOVE 14 *")
     if "test-scan" in dev[0].request("SCAN_RESULTS"):
         raise Exception("BSS unexpectedly found in initial scan")
 
@@ -1191,6 +1210,7 @@ def test_scan_bss_limit(dev, apdev):
         pass
 
 def _test_scan_bss_limit(dev, apdev):
+    dev[0].flush_scan_cache()
     # Trigger 'Increasing the MAX BSS count to 2 because all BSSes are in use.
     # We should normally not get here!' message by limiting the maximum BSS
     # count to one so that the second AP would not fit in the BSS list and the
@@ -1903,3 +1923,53 @@ def test_scan_only_one(dev, apdev):
     entries = len(list(filter(lambda x: x.startswith('BSS '), lines)))
     if entries != 1:
         raise Exception("expected to find 1 BSS entry, got %d" % entries)
+
+def test_scan_ssid_list(dev, apdev):
+    """Scan using SSID List element"""
+    dev[0].flush_scan_cache()
+    ssid = "test-ssid-list"
+    hapd = hostapd.add_ap(apdev[0], {"ssid": ssid,
+                                     "ignore_broadcast_ssid": "1"})
+    bssid = apdev[0]['bssid']
+    found = False
+    try:
+        payload = struct.pack('BB', 0, len(ssid)) + ssid.encode()
+        ssid_list = struct.pack('BB', 84, len(payload)) + payload
+        cmd = "VENDOR_ELEM_ADD 14 " + binascii.hexlify(ssid_list).decode()
+        if "OK" not in dev[0].request(cmd):
+            raise Exception("VENDOR_ELEM_ADD failed")
+        for i in range(10):
+            check_scan(dev[0], "freq=2412 use_id=1")
+            if ssid in dev[0].request("SCAN_RESULTS"):
+                found = True
+                break
+    finally:
+        dev[0].request("VENDOR_ELEM_REMOVE 14 *")
+
+    if not found:
+        raise Exception("AP not found in scan results")
+
+def test_scan_short_ssid_list(dev, apdev):
+    """Scan using Short SSID List element"""
+    dev[0].flush_scan_cache()
+    ssid = "test-short-ssid-list"
+    hapd = hostapd.add_ap(apdev[0], {"ssid": ssid,
+                                     "ignore_broadcast_ssid": "1"})
+    bssid = apdev[0]['bssid']
+    found = False
+    try:
+        payload = struct.pack('<L', binascii.crc32(ssid.encode()))
+        ssid_list = struct.pack('BBB', 255, 1 + len(payload), 58) + payload
+        cmd = "VENDOR_ELEM_ADD 14 " + binascii.hexlify(ssid_list).decode()
+        if "OK" not in dev[0].request(cmd):
+            raise Exception("VENDOR_ELEM_ADD failed")
+        for i in range(10):
+            check_scan(dev[0], "freq=2412 use_id=1")
+            if ssid in dev[0].request("SCAN_RESULTS"):
+                found = True
+                break
+    finally:
+        dev[0].request("VENDOR_ELEM_REMOVE 14 *")
+
+    if not found:
+        raise Exception("AP not found in scan results")

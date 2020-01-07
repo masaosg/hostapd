@@ -94,6 +94,7 @@ OBJS += src/utils/wpa_debug.c
 OBJS += src/utils/wpabuf.c
 OBJS += src/utils/bitfield.c
 OBJS += src/utils/ip_addr.c
+OBJS += src/utils/crc32.c
 OBJS += wmm_ac.c
 OBJS += op_classes.c
 OBJS += rrm.c
@@ -233,6 +234,9 @@ OBJS += src/common/sae.c
 NEED_ECC=y
 NEED_DH_GROUPS=y
 NEED_DRAGONFLY=y
+ifdef CONFIG_TESTING_OPTIONS
+NEED_DH_GROUPS_ALL=y
+endif
 endif
 
 ifdef CONFIG_DPP

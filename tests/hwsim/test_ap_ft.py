@@ -175,6 +175,10 @@ def run_roams(dev, apdev, hapd0, hapd1, ssid, passphrase, over_ds=False,
         copts["bssid"] = apdev[0]['bssid']
     netw = dev.connect(ssid, **copts)
     if pmksa_caching:
+        if dev.get_status_field('bssid') == apdev[0]['bssid']:
+            hapd0.wait_sta()
+        else:
+            hapd1.wait_sta()
         dev.request("DISCONNECT")
         dev.wait_disconnected()
         dev.request("RECONNECT")
@@ -1107,6 +1111,60 @@ def test_ap_ft_sae_pmksa_caching(dev, apdev):
     run_roams(dev[0], apdev, hapd0, hapd, ssid, passphrase, sae=True,
               pmksa_caching=True)
 
+def test_ap_ft_sae_pmksa_caching_pwe(dev, apdev):
+    """WPA2-FT-SAE AP and PMKSA caching for initial mobility domain association (STA PWE both)"""
+    if "SAE" not in dev[0].get_capability("auth_alg"):
+        raise HwsimSkip("SAE not supported")
+    ssid = "test-ft"
+    passphrase = "12345678"
+
+    params = ft_params1(ssid=ssid, passphrase=passphrase)
+    params['wpa_key_mgmt'] = "FT-SAE"
+    hapd0 = hostapd.add_ap(apdev[0], params)
+    params = ft_params2(ssid=ssid, passphrase=passphrase)
+    params['wpa_key_mgmt'] = "FT-SAE"
+    hapd = hostapd.add_ap(apdev[1], params)
+    key_mgmt = hapd.get_config()['key_mgmt']
+    if key_mgmt.split(' ')[0] != "FT-SAE":
+        raise Exception("Unexpected GET_CONFIG(key_mgmt): " + key_mgmt)
+
+    try:
+        dev[0].request("SET sae_groups ")
+        dev[0].set("sae_pwe", "2")
+        run_roams(dev[0], apdev, hapd0, hapd, ssid, passphrase, sae=True,
+                  pmksa_caching=True)
+    finally:
+        dev[0].set("sae_groups", "")
+        dev[0].set("sae_pwe", "0")
+
+def test_ap_ft_sae_pmksa_caching_h2e(dev, apdev):
+    """WPA2-FT-SAE AP and PMKSA caching for initial mobility domain association (H2E)"""
+    if "SAE" not in dev[0].get_capability("auth_alg"):
+        raise HwsimSkip("SAE not supported")
+    ssid = "test-ft"
+    passphrase = "12345678"
+
+    params = ft_params1(ssid=ssid, passphrase=passphrase)
+    params['wpa_key_mgmt'] = "FT-SAE"
+    params['sae_pwe'] = "1"
+    hapd0 = hostapd.add_ap(apdev[0], params)
+    params = ft_params2(ssid=ssid, passphrase=passphrase)
+    params['wpa_key_mgmt'] = "FT-SAE"
+    params['sae_pwe'] = "1"
+    hapd = hostapd.add_ap(apdev[1], params)
+    key_mgmt = hapd.get_config()['key_mgmt']
+    if key_mgmt.split(' ')[0] != "FT-SAE":
+        raise Exception("Unexpected GET_CONFIG(key_mgmt): " + key_mgmt)
+
+    try:
+        dev[0].request("SET sae_groups ")
+        dev[0].set("sae_pwe", "1")
+        run_roams(dev[0], apdev, hapd0, hapd, ssid, passphrase, sae=True,
+                  pmksa_caching=True)
+    finally:
+        dev[0].set("sae_groups", "")
+        dev[0].set("sae_pwe", "0")
+
 def generic_ap_ft_eap(dev, apdev, vlan=False, cui=False, over_ds=False,
                       discovery=False, roams=1, wpa_ptk_rekey=0,
                       only_one_way=False):
@@ -1289,6 +1347,84 @@ def test_ap_ft_eap_pull_wildcard(dev, apdev):
     hapd1 = hostapd.add_ap(apdev[1], params)
 
     run_roams(dev[0], apdev, hapd, hapd1, ssid, passphrase, eap=True)
+
+def test_ap_ft_eap_pull_wildcard_multi_bss(dev, apdev, params):
+    """WPA2-EAP-FT AP (pull PMK) - wildcard R0KH/R1KH with multiple BSSs"""
+    bssconf = os.path.join(params['logdir'],
+                           'ap_ft_eap_pull_wildcard_multi_bss.bss.conf')
+    ssid = "test-ft"
+    passphrase = "12345678"
+    radius = hostapd.radius_params()
+
+    params = ft_params1(ssid=ssid, passphrase=passphrase, discovery=True)
+    params['wpa_key_mgmt'] = "WPA-EAP FT-EAP"
+    params["ieee8021x"] = "1"
+    params["pmk_r1_push"] = "0"
+    params["r0kh"] = "ff:ff:ff:ff:ff:ff * 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+    params["r1kh"] = "00:00:00:00:00:00 00:00:00:00:00:00 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+    params["eap_server"] = "0"
+    params = dict(list(radius.items()) + list(params.items()))
+    hapd = hostapd.add_ap(apdev[0], params)
+    ifname2 = apdev[0]['ifname'] + "-2"
+    bssid2 = "02:00:00:00:03:01"
+    params['nas_identifier'] = "nas1b.w1.fi"
+    params['r1_key_holder'] = "000102030415"
+    with open(bssconf, 'w') as f:
+        f.write("driver=nl80211\n")
+        f.write("hw_mode=g\n")
+        f.write("channel=1\n")
+        f.write("ieee80211n=1\n")
+        f.write("interface=%s\n" % ifname2)
+        f.write("bssid=%s\n" % bssid2)
+        f.write("ctrl_interface=/var/run/hostapd\n")
+        for name, val in params.items():
+            f.write("%s=%s\n" % (name, val))
+    hapd2 = hostapd.add_bss(apdev[0], ifname2, bssconf)
+
+    params = ft_params2(ssid=ssid, passphrase=passphrase, discovery=True)
+    params['wpa_key_mgmt'] = "WPA-EAP FT-EAP"
+    params["ieee8021x"] = "1"
+    params["pmk_r1_push"] = "0"
+    params["r0kh"] = "ff:ff:ff:ff:ff:ff * 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+    params["r1kh"] = "00:00:00:00:00:00 00:00:00:00:00:00 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+    params["eap_server"] = "0"
+    params = dict(list(radius.items()) + list(params.items()))
+    hapd1 = hostapd.add_ap(apdev[1], params)
+
+    # The first iteration of the roaming test will use wildcard R0KH discovery
+    # and RRB sequence number synchronization while the second iteration shows
+    # the clean RRB exchange where those extra steps are not needed.
+    for i in range(2):
+        hapd.note("Test iteration %d" % i)
+        dev[0].note("Test iteration %d" % i)
+
+        id = dev[0].connect(ssid, key_mgmt="FT-EAP", eap="GPSK",
+                            identity="gpsk user",
+                            password="abcdefghijklmnop0123456789abcdef",
+                            bssid=bssid2,
+                            scan_freq="2412")
+        res = dev[0].get_status_field("bssid")
+        if res != bssid2:
+            raise Exception("Unexpected BSSID after initial connection: " + res)
+
+        dev[0].scan_for_bss(apdev[1]['bssid'], freq="2412")
+        dev[0].set_network(id, "bssid", "00:00:00:00:00:00")
+        dev[0].roam(apdev[1]['bssid'])
+        res = dev[0].get_status_field("bssid")
+        if res != apdev[1]['bssid']:
+            raise Exception("Unexpected BSSID after first roam: " + res)
+
+        dev[0].scan_for_bss(apdev[0]['bssid'], freq="2412")
+        dev[0].roam(apdev[0]['bssid'])
+        res = dev[0].get_status_field("bssid")
+        if res != apdev[0]['bssid']:
+            raise Exception("Unexpected BSSID after second roam: " + res)
+
+        dev[0].request("REMOVE_NETWORK all")
+        dev[0].wait_disconnected()
+        dev[0].dump_monitor()
+        hapd.dump_monitor()
+        hapd2.dump_monitor()
 
 @remote_compatible
 def test_ap_ft_mismatching_rrb_key_push(dev, apdev):
@@ -2395,20 +2531,6 @@ def test_rsn_ie_proto_ft_psk_sta(dev, apdev):
     logger.info('Invalid RSNE causing internal hostapd error')
     hapd.disable()
     hapd.set('own_ie_override', '30130100000fac040100000fac040100000fac048c' + '3603a1b201')
-    hapd.enable()
-    dev[0].request("BSS_FLUSH 0")
-    dev[0].scan_for_bss(bssid, 2412, force_scan=True, only_new=True)
-    dev[0].select_network(id, freq=2412)
-    # hostapd fails to generate EAPOL-Key msg 3/4, so this connection cannot
-    # complete.
-    ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED"], timeout=1)
-    if ev is not None:
-        raise Exception("Unexpected connection")
-    dev[0].request("DISCONNECT")
-
-    logger.info('Unexpected PMKID causing internal hostapd error')
-    hapd.disable()
-    hapd.set('own_ie_override', '30260100000fac040100000fac040100000fac048c000100ffffffffffffffffffffffffffffffff' + '3603a1b201')
     hapd.enable()
     dev[0].request("BSS_FLUSH 0")
     dev[0].scan_for_bss(bssid, 2412, force_scan=True, only_new=True)

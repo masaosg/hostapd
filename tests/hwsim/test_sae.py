@@ -1396,7 +1396,7 @@ def test_sae_bignum_failure(dev, apdev):
             hapd.request("NOTE STA failure testing %d:%s" % (count, func))
             dev[0].connect("test-sae", psk="12345678", key_mgmt="SAE",
                            scan_freq="2412", wait_connect=False)
-            wait_fail_trigger(dev[0], "GET_FAIL")
+            wait_fail_trigger(dev[0], "GET_FAIL", timeout=0.1)
             dev[0].request("REMOVE_NETWORK all")
             dev[0].dump_monitor()
             hapd.dump_monitor()
@@ -1426,7 +1426,7 @@ def test_sae_bignum_failure(dev, apdev):
             hapd.request("NOTE STA failure testing %d:%s" % (count, func))
             dev[0].connect("test-sae", psk="12345678", key_mgmt="SAE",
                            scan_freq="2412", wait_connect=False)
-            wait_fail_trigger(dev[0], "GET_FAIL")
+            wait_fail_trigger(dev[0], "GET_FAIL", timeout=0.1)
             dev[0].request("REMOVE_NETWORK all")
             dev[0].dump_monitor()
             hapd.dump_monitor()
@@ -1981,6 +1981,17 @@ def test_sae_pwe_h2e_only_ap(dev, apdev):
     if ev is None:
         raise Exception("No indication of mismatching network seen")
 
+def test_sae_pwe_h2e_only_ap_sta_forcing_loop(dev, apdev):
+    """SAE PWE derivation with H2E-only AP and STA forcing loop"""
+    start_sae_pwe_ap(apdev[0], 19, 1)
+    dev[0].set("ignore_sae_h2e_only", "1")
+    dev[0].connect("sae-pwe", psk="12345678", key_mgmt="SAE", scan_freq="2412",
+                   wait_connect=False)
+    ev = dev[0].wait_event(["CTRL-EVENT-SSID-TEMP-DISABLED"], timeout=10)
+    dev[0].request("DISCONNECT")
+    if ev is None:
+        raise Exception("No indication of temporary disabled network seen")
+
 def test_sae_pwe_loop_only_ap(dev, apdev):
     """SAE PWE derivation with loop-only AP"""
     start_sae_pwe_ap(apdev[0], 19, 0)
@@ -2009,6 +2020,38 @@ def test_sae_h2e_rejected_groups(dev, apdev):
         dev[0].set("sae_pwe", "1")
         dev[0].connect("sae-pwe", psk="12345678", key_mgmt="SAE",
                        scan_freq="2412")
+        addr = dev[0].own_addr()
+        hapd.wait_sta(addr)
+        sta = hapd.get_sta(addr)
+        if 'sae_rejected_groups' not in sta:
+            raise Exception("No sae_rejected_groups")
+        val = sta['sae_rejected_groups']
+        if val != "21 20":
+            raise Exception("Unexpected sae_rejected_groups value: " + val)
+    finally:
+        dev[0].set("sae_groups", "")
+        dev[0].set("sae_pwe", "0")
+
+def test_sae_h2e_rejected_groups_unexpected(dev, apdev):
+    """SAE H2E and rejected groups indication (unexpected group)"""
+    params = hostapd.wpa2_params(ssid="sae-pwe", passphrase="12345678")
+    params['wpa_key_mgmt'] = 'SAE'
+    params['sae_groups'] = "19 20"
+    params['sae_pwe'] = "1"
+    hapd = hostapd.add_ap(apdev[0], params)
+    try:
+        dev[0].set("sae_groups", "21 19")
+        dev[0].set("extra_sae_rejected_groups", "19")
+        dev[0].set("sae_pwe", "1")
+        dev[0].connect("sae-pwe", psk="12345678", key_mgmt="SAE",
+                       scan_freq="2412", wait_connect=False)
+        ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED",
+                                "CTRL-EVENT-SSID-TEMP-DISABLED"], timeout=10)
+        dev[0].request("DISCONNECT")
+        if ev is None:
+            raise Exception("No indication of temporary disabled network seen")
+        if "CTRL-EVENT-CONNECTED" in ev:
+            raise Exception("Unexpected connection")
     finally:
         dev[0].set("sae_groups", "")
         dev[0].set("sae_pwe", "0")
@@ -2067,6 +2110,131 @@ def test_sae_auth_restart(dev, apdev):
             dev[0].wait_disconnected()
             dev[0].dump_monitor()
             hapd.set("ext_mgmt_frame_handling", "0")
+    finally:
+        dev[0].set("sae_groups", "")
+        dev[0].set("sae_pwe", "0")
+
+def test_sae_h2e_rsnxe_mismatch(dev, apdev):
+    """SAE H2E and RSNXE mismatch in EAPOL-Key msg 2/4"""
+    params = hostapd.wpa2_params(ssid="sae-pwe", passphrase="12345678")
+    params['wpa_key_mgmt'] = 'SAE'
+    params['sae_pwe'] = "1"
+    hapd = hostapd.add_ap(apdev[0], params)
+    try:
+        dev[0].set("sae_groups", "19")
+        dev[0].set("sae_pwe", "1")
+        for rsnxe in ["F40100", "F400", ""]:
+            dev[0].set("rsnxe_override_eapol", rsnxe)
+            dev[0].connect("sae-pwe", psk="12345678", key_mgmt="SAE",
+                           scan_freq="2412", wait_connect=False)
+            ev = dev[0].wait_event(["Associated with"], timeout=10)
+            if ev is None:
+                raise Exception("No indication of association seen")
+            ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED",
+                                    "CTRL-EVENT-DISCONNECTED"], timeout=5)
+            dev[0].request("REMOVE_NETWORK all")
+            if ev is None:
+                raise Exception("No disconnection seen")
+            if "CTRL-EVENT-DISCONNECTED" not in ev:
+                raise Exception("Unexpected connection")
+            dev[0].dump_monitor()
+    finally:
+        dev[0].set("sae_groups", "")
+        dev[0].set("sae_pwe", "0")
+
+def test_sae_h2e_rsnxe_mismatch_retries(dev, apdev):
+    """SAE H2E and RSNXE mismatch in EAPOL-Key msg 2/4 retries"""
+    params = hostapd.wpa2_params(ssid="sae-pwe", passphrase="12345678")
+    params['wpa_key_mgmt'] = 'SAE'
+    params['sae_pwe'] = "1"
+    hapd = hostapd.add_ap(apdev[0], params)
+    try:
+        dev[0].set("sae_groups", "19")
+        dev[0].set("sae_pwe", "1")
+        rsnxe = "F40100"
+        dev[0].set("rsnxe_override_eapol", rsnxe)
+        dev[0].connect("sae-pwe", psk="12345678", key_mgmt="SAE",
+                       scan_freq="2412", wait_connect=False)
+        ev = dev[0].wait_event(["Associated with"], timeout=10)
+        if ev is None:
+            raise Exception("No indication of association seen")
+        ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED",
+                                "CTRL-EVENT-DISCONNECTED"], timeout=5)
+        if ev is None:
+            raise Exception("No disconnection seen")
+        if "CTRL-EVENT-DISCONNECTED" not in ev:
+            raise Exception("Unexpected connection")
+
+        ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED",
+                                "CTRL-EVENT-DISCONNECTED"], timeout=10)
+        if ev is None:
+            raise Exception("No disconnection seen (2)")
+        if "CTRL-EVENT-DISCONNECTED" not in ev:
+            raise Exception("Unexpected connection (2)")
+
+        dev[0].dump_monitor()
+    finally:
+        dev[0].set("sae_groups", "")
+        dev[0].set("sae_pwe", "0")
+
+def test_sae_h2e_rsnxe_mismatch_assoc(dev, apdev):
+    """SAE H2E and RSNXE mismatch in EAPOL-Key msg 2/4 (assoc)"""
+    params = hostapd.wpa2_params(ssid="sae-pwe", passphrase="12345678")
+    params['wpa_key_mgmt'] = 'SAE'
+    params['sae_pwe'] = "1"
+    hapd = hostapd.add_ap(apdev[0], params)
+    try:
+        dev[0].set("sae_groups", "19")
+        dev[0].set("sae_pwe", "1")
+        for rsnxe in ["F40100", "F400", ""]:
+            dev[0].set("rsnxe_override_assoc", rsnxe)
+            dev[0].set("rsnxe_override_eapol", "F40120")
+            dev[0].connect("sae-pwe", psk="12345678", key_mgmt="SAE",
+                           scan_freq="2412", wait_connect=False)
+            ev = dev[0].wait_event(["Associated with"], timeout=10)
+            if ev is None:
+                raise Exception("No indication of association seen")
+            ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED",
+                                    "CTRL-EVENT-DISCONNECTED"], timeout=5)
+            dev[0].request("REMOVE_NETWORK all")
+            if ev is None:
+                raise Exception("No disconnection seen")
+            if "CTRL-EVENT-DISCONNECTED" not in ev:
+                raise Exception("Unexpected connection")
+            dev[0].dump_monitor()
+    finally:
+        dev[0].set("sae_groups", "")
+        dev[0].set("sae_pwe", "0")
+
+def test_sae_h2e_rsnxe_mismatch_ap(dev, apdev):
+    """SAE H2E and RSNXE mismatch in EAPOL-Key msg 3/4"""
+    run_sae_h2e_rsnxe_mismatch_ap(dev, apdev, "F40100")
+
+def test_sae_h2e_rsnxe_mismatch_ap2(dev, apdev):
+    """SAE H2E and RSNXE mismatch in EAPOL-Key msg 3/4"""
+    run_sae_h2e_rsnxe_mismatch_ap(dev, apdev, "F400")
+
+def run_sae_h2e_rsnxe_mismatch_ap(dev, apdev, rsnxe):
+    params = hostapd.wpa2_params(ssid="sae-pwe", passphrase="12345678")
+    params['wpa_key_mgmt'] = 'SAE'
+    params['sae_pwe'] = "1"
+    params['rsnxe_override_eapol'] = rsnxe
+    hapd = hostapd.add_ap(apdev[0], params)
+    try:
+        dev[0].set("sae_groups", "19")
+        dev[0].set("sae_pwe", "1")
+        dev[0].connect("sae-pwe", psk="12345678", key_mgmt="SAE",
+                       scan_freq="2412", wait_connect=False)
+        ev = dev[0].wait_event(["Associated with"], timeout=10)
+        if ev is None:
+            raise Exception("No indication of association seen")
+        ev = dev[0].wait_event(["CTRL-EVENT-CONNECTED",
+                                "CTRL-EVENT-DISCONNECTED"], timeout=5)
+        dev[0].request("REMOVE_NETWORK all")
+        if ev is None:
+            raise Exception("No disconnection seen")
+        if "CTRL-EVENT-DISCONNECTED" not in ev:
+            raise Exception("Unexpected connection")
     finally:
         dev[0].set("sae_groups", "")
         dev[0].set("sae_pwe", "0")
