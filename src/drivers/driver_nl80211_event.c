@@ -683,17 +683,28 @@ static void mlme_event_mgmt_tx_status(struct wpa_driver_nl80211_data *drv,
 				      size_t len, struct nlattr *ack)
 {
 	union wpa_event_data event;
-	const struct ieee80211_hdr *hdr;
-	u16 fc;
+	const struct ieee80211_hdr *hdr = (const struct ieee80211_hdr *) frame;
+	u16 fc = le_to_host16(hdr->frame_control);
+	u64 cookie_val = 0;
 
-	wpa_printf(MSG_DEBUG, "nl80211: Frame TX status event");
-	if (!is_ap_interface(drv->nlmode)) {
-		u64 cookie_val;
+	if (cookie)
+		cookie_val = nla_get_u64(cookie);
+	wpa_printf(MSG_DEBUG,
+		   "nl80211: Frame TX status event A1=" MACSTR
+		   " %sstype=%d cookie=0x%llx%s ack=%d",
+		   MAC2STR(hdr->addr1),
+		   WLAN_FC_GET_TYPE(fc) != WLAN_FC_TYPE_MGMT ? "not-mgmt " : "",
+		   WLAN_FC_GET_STYPE(fc), (long long unsigned int) cookie_val,
+		   cookie ? "" : "(N/A)", ack != NULL);
 
+	if (WLAN_FC_GET_TYPE(fc) != WLAN_FC_TYPE_MGMT)
+		return;
+
+	if (!is_ap_interface(drv->nlmode) &&
+	    WLAN_FC_GET_STYPE(fc) == WLAN_FC_STYPE_ACTION) {
 		if (!cookie)
 			return;
 
-		cookie_val = nla_get_u64(cookie);
 		wpa_printf(MSG_DEBUG,
 			   "nl80211: Frame TX status: cookie=0x%llx%s (ack=%d)",
 			   (long long unsigned int) cookie_val,
@@ -701,10 +712,12 @@ static void mlme_event_mgmt_tx_status(struct wpa_driver_nl80211_data *drv,
 			   " (match)" : " (unknown)", ack != NULL);
 		if (cookie_val != drv->send_frame_cookie)
 			return;
+	} else if (!is_ap_interface(drv->nlmode) &&
+		   WLAN_FC_GET_STYPE(fc) == WLAN_FC_STYPE_AUTH) {
+		wpa_printf(MSG_DEBUG,
+			   "nl80211: Authentication frame TX status: ack=%d",
+			   !!ack);
 	}
-
-	hdr = (const struct ieee80211_hdr *) frame;
-	fc = le_to_host16(hdr->frame_control);
 
 	os_memset(&event, 0, sizeof(event));
 	event.tx_status.type = WLAN_FC_GET_TYPE(fc);
@@ -1794,7 +1807,7 @@ static void qca_nl80211_acs_select_ch(struct wpa_driver_nl80211_data *drv,
 	if (tb[QCA_WLAN_VENDOR_ATTR_ACS_VHT_SEG0_CENTER_CHANNEL])
 		event.acs_selected_channels.vht_seg0_center_ch =
 			nla_get_u8(tb[QCA_WLAN_VENDOR_ATTR_ACS_VHT_SEG0_CENTER_CHANNEL]);
-	if (tb[QCA_WLAN_VENDOR_ATTR_ACS_VHT_SEG0_CENTER_CHANNEL])
+	if (tb[QCA_WLAN_VENDOR_ATTR_ACS_VHT_SEG1_CENTER_CHANNEL])
 		event.acs_selected_channels.vht_seg1_center_ch =
 			nla_get_u8(tb[QCA_WLAN_VENDOR_ATTR_ACS_VHT_SEG1_CENTER_CHANNEL]);
 	if (tb[QCA_WLAN_VENDOR_ATTR_ACS_CHWIDTH])

@@ -4,6 +4,7 @@
 # This software may be distributed under the terms of the BSD license.
 # See README for more details.
 
+import hostapd
 from remotehost import remote_compatible
 import time
 import logging
@@ -13,6 +14,7 @@ import hwsim_utils
 from utils import HwsimSkip, alloc_fail, clear_regdom_dev
 from wpasupplicant import WpaSupplicant
 from test_p2p_channel import set_country
+from test_wep import check_wep_capa
 
 def wait_ap_ready(dev):
     ev = dev.wait_event(["CTRL-EVENT-CONNECTED"])
@@ -103,6 +105,7 @@ def test_wpas_ap_open_isolate(dev):
 @remote_compatible
 def test_wpas_ap_wep(dev):
     """wpa_supplicant AP mode - WEP"""
+    check_wep_capa(dev[0])
     id = dev[0].add_network()
     dev[0].set_network(id, "mode", "2")
     dev[0].set_network_quoted(id, "ssid", "wpas-ap-wep")
@@ -540,17 +543,18 @@ def test_wpas_ap_oom(dev):
         dev[0].wait_disconnected()
     dev[0].request("REMOVE_NETWORK all")
 
-    id = dev[0].add_network()
-    dev[0].set_network(id, "mode", "2")
-    dev[0].set_network_quoted(id, "ssid", "wpas-ap")
-    dev[0].set_network(id, "key_mgmt", "NONE")
-    dev[0].set_network_quoted(id, "wep_key0", "hello")
-    dev[0].set_network(id, "frequency", "2412")
-    dev[0].set_network(id, "scan_freq", "2412")
-    with alloc_fail(dev[0], 1, "=wpa_supplicant_conf_ap"):
-        dev[0].select_network(id)
-        dev[0].wait_disconnected()
-    dev[0].request("REMOVE_NETWORK all")
+    if "WEP40" in dev[0].get_capability("group"):
+        id = dev[0].add_network()
+        dev[0].set_network(id, "mode", "2")
+        dev[0].set_network_quoted(id, "ssid", "wpas-ap")
+        dev[0].set_network(id, "key_mgmt", "NONE")
+        dev[0].set_network_quoted(id, "wep_key0", "hello")
+        dev[0].set_network(id, "frequency", "2412")
+        dev[0].set_network(id, "scan_freq", "2412")
+        with alloc_fail(dev[0], 1, "=wpa_supplicant_conf_ap"):
+            dev[0].select_network(id)
+            dev[0].wait_disconnected()
+        dev[0].request("REMOVE_NETWORK all")
 
     wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
     wpas.interface_add("wlan5")
@@ -812,3 +816,36 @@ def run_wpas_ap_sae(dev, sae_password, sae_password_id=False):
     dev[1].request("SET sae_groups ")
     dev[1].connect("wpas-ap-sae", key_mgmt="SAE", sae_password="12345678",
                    sae_password_id=pw_id, scan_freq="2412")
+
+def test_wpas_ap_scan(dev, apdev):
+    """wpa_supplicant AP mode and scanning"""
+    dev[0].flush_scan_cache()
+
+    hapd = hostapd.add_ap(apdev[0], {"ssid": "open"})
+    bssid = hapd.own_addr()
+
+    id = dev[0].add_network()
+    dev[0].set_network(id, "mode", "2")
+    dev[0].set_network_quoted(id, "ssid", "wpas-ap-open")
+    dev[0].set_network(id, "key_mgmt", "NONE")
+    dev[0].set_network(id, "frequency", "2412")
+    dev[0].set_network(id, "scan_freq", "2412")
+    dev[0].select_network(id)
+    wait_ap_ready(dev[0])
+    dev[0].dump_monitor()
+
+    if "OK" not in dev[0].request("SCAN freq=2412"):
+        raise Exception("SCAN command not accepted")
+    ev = dev[0].wait_event(["CTRL-EVENT-SCAN-RESULTS",
+                            "CTRL-EVENT-SCAN-FAILED"], 15)
+    if ev is None:
+        raise Exception("Scan result timed out")
+    if "CTRL-EVENT-SCAN-FAILED ret=-95" in ev:
+        # Scanning in AP mode not supported
+        return
+    if "CTRL-EVENT-SCAN-FAILED" in ev:
+        raise Exception("Unexpected scan failure reason: " + ev)
+    if "CTRL-EVENT-SCAN-RESULTS" in ev:
+        bss = dev[0].get_bss(bssid)
+        if not bss:
+            raise Exception("AP not found in scan")

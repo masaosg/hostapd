@@ -330,8 +330,10 @@ class WpaSupplicant:
         if not self.ping():
             logger.info("No PING response from " + self.ifname + " after reset")
 
-    def set(self, field, value):
+    def set(self, field, value, allow_fail=False):
         if "OK" not in self.request("SET " + field + " " + value):
+            if allow_fail:
+                return
             raise Exception("Failed to set wpa_supplicant parameter " + field)
 
     def add_network(self):
@@ -595,6 +597,15 @@ class WpaSupplicant:
         except:
             res = self.p2p_dev_addr()
         return res
+
+    def get_addr(self, group=False):
+        dev_addr = self.own_addr()
+        if not group:
+            addr = self.get_status_field('address')
+            if addr:
+                dev_addr = addr
+
+        return dev_addr
 
     def p2p_listen(self):
         return self.global_request("P2P_LISTEN")
@@ -1089,10 +1100,12 @@ class WpaSupplicant:
                       "engine", "fils_dh_group", "bssid_hint",
                       "dpp_csign", "dpp_csign_expiry",
                       "dpp_netaccesskey", "dpp_netaccesskey_expiry",
-                      "group_mgmt", "owe_group",
+                      "group_mgmt", "owe_group", "owe_only",
+                      "owe_ptk_workaround",
                       "roaming_consortium_selection", "ocv",
                       "multi_ap_backhaul_sta", "rx_stbc", "tx_stbc",
-                      "ft_eap_pmksa_caching"]
+                      "ft_eap_pmksa_caching", "beacon_prot",
+                      "wpa_deny_ptk0_rekey"]
         for field in not_quoted:
             if field in kwargs and kwargs[field]:
                 self.set_network(id, field, kwargs[field])
@@ -1178,27 +1191,42 @@ class WpaSupplicant:
                                  "CTRL-EVENT-SCAN-RESULTS"], timeout=0.5)
         self.dump_monitor()
 
-    def roam(self, bssid, fail_test=False, assoc_reject_ok=False):
+    def roam(self, bssid, fail_test=False, assoc_reject_ok=False,
+             check_bssid=True):
         self.dump_monitor()
         if "OK" not in self.request("ROAM " + bssid):
             raise Exception("ROAM failed")
         if fail_test:
             if assoc_reject_ok:
                 ev = self.wait_event(["CTRL-EVENT-CONNECTED",
+                                      "CTRL-EVENT-DISCONNECTED",
                                       "CTRL-EVENT-ASSOC-REJECT"], timeout=1)
             else:
-                ev = self.wait_event(["CTRL-EVENT-CONNECTED"], timeout=1)
+                ev = self.wait_event(["CTRL-EVENT-CONNECTED",
+                                      "CTRL-EVENT-DISCONNECTED"], timeout=1)
+            if ev and "CTRL-EVENT-DISCONNECTED" in ev:
+                self.dump_monitor()
+                return
             if ev is not None and "CTRL-EVENT-ASSOC-REJECT" not in ev:
                 raise Exception("Unexpected connection")
             self.dump_monitor()
             return
-        ev = self.wait_event(["CTRL-EVENT-CONNECTED",
-                              "CTRL-EVENT-ASSOC-REJECT"], timeout=10)
+        if assoc_reject_ok:
+            ev = self.wait_event(["CTRL-EVENT-CONNECTED",
+                                  "CTRL-EVENT-DISCONNECTED"], timeout=10)
+        else:
+            ev = self.wait_event(["CTRL-EVENT-CONNECTED",
+                                      "CTRL-EVENT-DISCONNECTED",
+                                  "CTRL-EVENT-ASSOC-REJECT"], timeout=10)
         if ev is None:
             raise Exception("Roaming with the AP timed out")
         if "CTRL-EVENT-ASSOC-REJECT" in ev:
             raise Exception("Roaming association rejected")
+        if "CTRL-EVENT-DISCONNECTED" in ev:
+            raise Exception("Unexpected disconnection when waiting for roam to complete")
         self.dump_monitor()
+        if check_bssid and self.get_status_field('bssid') != bssid:
+            raise Exception("Did not roam to correct BSSID")
 
     def roam_over_ds(self, bssid, fail_test=False):
         self.dump_monitor()
@@ -1295,6 +1323,14 @@ class WpaSupplicant:
             if cache_id != None:
                 vals['cache_id'] = cache_id
             return vals
+        return None
+
+    def get_pmk(self, network_id):
+        bssid = self.get_status_field('bssid')
+        res = self.request("PMKSA_GET %d" % network_id)
+        for val in res.splitlines():
+            if val.startswith(bssid):
+                return val.split(' ')[2]
         return None
 
     def get_sta(self, addr, info=None, next=False):
@@ -1407,6 +1443,10 @@ class WpaSupplicant:
     def note(self, txt):
         self.request("NOTE " + txt)
 
+    def save_config(self):
+        if "OK" not in self.request("SAVE_CONFIG"):
+            raise Exception("Failed to save configuration file")
+
     def wait_regdom(self, country_ie=False):
         for i in range(5):
             ev = self.wait_event(["CTRL-EVENT-REGDOM-CHANGE"], timeout=1)
@@ -1465,7 +1505,7 @@ class WpaSupplicant:
                       extra=None, own=None, role=None, neg_freq=None,
                       ssid=None, passphrase=None, expect_fail=False,
                       tcp_addr=None, tcp_port=None, conn_status=False,
-                      ssid_charset=None, nfc_uri=None):
+                      ssid_charset=None, nfc_uri=None, netrole=None):
         cmd = "DPP_AUTH_INIT"
         if peer is None:
             if nfc_uri:
@@ -1497,6 +1537,8 @@ class WpaSupplicant:
             cmd += " tcp_port=" + tcp_port
         if conn_status:
             cmd += " conn_status=1"
+        if netrole:
+            cmd += " netrole=" + netrole
         res = self.request(cmd)
         if expect_fail:
             if "FAIL" not in res:

@@ -37,6 +37,8 @@ static void hostapd_wpa_auth_conf(struct hostapd_bss_config *conf,
 				  struct hostapd_config *iconf,
 				  struct wpa_auth_config *wconf)
 {
+	int sae_pw_id;
+
 	os_memset(wconf, 0, sizeof(*wconf));
 	wconf->wpa = conf->wpa;
 	wconf->wpa_key_mgmt = conf->wpa_key_mgmt;
@@ -65,6 +67,7 @@ static void hostapd_wpa_auth_conf(struct hostapd_bss_config *conf,
 #endif /* CONFIG_OCV */
 	wconf->okc = conf->okc;
 	wconf->ieee80211w = conf->ieee80211w;
+	wconf->beacon_prot = conf->beacon_prot;
 	wconf->group_mgmt_cipher = conf->group_mgmt_cipher;
 	wconf->sae_require_mfp = conf->sae_require_mfp;
 #ifdef CONFIG_IEEE80211R_AP
@@ -118,13 +121,41 @@ static void hostapd_wpa_auth_conf(struct hostapd_bss_config *conf,
 			  wpabuf_head(conf->own_ie_override),
 			  wconf->own_ie_override_len);
 	}
+	if (conf->rsne_override_eapol &&
+	    wpabuf_len(conf->rsne_override_eapol) <= MAX_OWN_IE_OVERRIDE) {
+		wconf->rsne_override_eapol_set = 1;
+		wconf->rsne_override_eapol_len =
+			wpabuf_len(conf->rsne_override_eapol);
+		os_memcpy(wconf->rsne_override_eapol,
+			  wpabuf_head(conf->rsne_override_eapol),
+			  wconf->rsne_override_eapol_len);
+	}
 	if (conf->rsnxe_override_eapol &&
 	    wpabuf_len(conf->rsnxe_override_eapol) <= MAX_OWN_IE_OVERRIDE) {
+		wconf->rsnxe_override_eapol_set = 1;
 		wconf->rsnxe_override_eapol_len =
 			wpabuf_len(conf->rsnxe_override_eapol);
 		os_memcpy(wconf->rsnxe_override_eapol,
 			  wpabuf_head(conf->rsnxe_override_eapol),
 			  wconf->rsnxe_override_eapol_len);
+	}
+	if (conf->rsne_override_ft &&
+	    wpabuf_len(conf->rsne_override_ft) <= MAX_OWN_IE_OVERRIDE) {
+		wconf->rsne_override_ft_set = 1;
+		wconf->rsne_override_ft_len =
+			wpabuf_len(conf->rsne_override_ft);
+		os_memcpy(wconf->rsne_override_ft,
+			  wpabuf_head(conf->rsne_override_ft),
+			  wconf->rsne_override_ft_len);
+	}
+	if (conf->rsnxe_override_ft &&
+	    wpabuf_len(conf->rsnxe_override_ft) <= MAX_OWN_IE_OVERRIDE) {
+		wconf->rsnxe_override_ft_set = 1;
+		wconf->rsnxe_override_ft_len =
+			wpabuf_len(conf->rsnxe_override_ft);
+		os_memcpy(wconf->rsnxe_override_ft,
+			  wpabuf_head(conf->rsnxe_override_ft),
+			  wconf->rsnxe_override_ft_len);
 	}
 	if (conf->gtk_rsc_override &&
 	    wpabuf_len(conf->gtk_rsc_override) > 0 &&
@@ -155,6 +186,14 @@ static void hostapd_wpa_auth_conf(struct hostapd_bss_config *conf,
 		  FILS_CACHE_ID_LEN);
 #endif /* CONFIG_FILS */
 	wconf->sae_pwe = conf->sae_pwe;
+	sae_pw_id = hostapd_sae_pw_id_in_use(conf);
+	if (sae_pw_id == 2 && wconf->sae_pwe != 3)
+		wconf->sae_pwe = 1;
+	else if (sae_pw_id == 1 && wconf->sae_pwe == 0)
+		wconf->sae_pwe = 2;
+#ifdef CONFIG_OWE
+	wconf->owe_ptk_workaround = conf->owe_ptk_workaround;
+#endif /* CONFIG_OWE */
 }
 
 
@@ -378,15 +417,19 @@ static int hostapd_wpa_auth_get_msk(void *ctx, const u8 *addr, u8 *msk,
 
 static int hostapd_wpa_auth_set_key(void *ctx, int vlan_id, enum wpa_alg alg,
 				    const u8 *addr, int idx, u8 *key,
-				    size_t key_len)
+				    size_t key_len, enum key_flag key_flag)
 {
 	struct hostapd_data *hapd = ctx;
 	const char *ifname = hapd->conf->iface;
 
 	if (vlan_id > 0) {
 		ifname = hostapd_get_vlan_id_ifname(hapd->conf->vlan, vlan_id);
-		if (ifname == NULL)
-			return -1;
+		if (!ifname) {
+			if (!(hapd->iface->drv_flags &
+			      WPA_DRIVER_FLAGS_VLAN_OFFLOAD))
+				return -1;
+			ifname = hapd->conf->iface;
+		}
 	}
 
 #ifdef CONFIG_TESTING_OPTIONS
@@ -418,8 +461,8 @@ static int hostapd_wpa_auth_set_key(void *ctx, int vlan_id, enum wpa_alg alg,
 		hapd->last_gtk_len = key_len;
 	}
 #endif /* CONFIG_TESTING_OPTIONS */
-	return hostapd_drv_set_key(ifname, hapd, alg, addr, idx, 1, NULL, 0,
-				   key, key_len);
+	return hostapd_drv_set_key(ifname, hapd, alg, addr, idx, vlan_id, 1,
+				   NULL, 0, key, key_len, key_flag);
 }
 
 
@@ -849,26 +892,32 @@ static int hostapd_wpa_auth_update_vlan(void *ctx, const u8 *addr, int vlan_id)
 #ifndef CONFIG_NO_VLAN
 	struct hostapd_data *hapd = ctx;
 	struct sta_info *sta;
-	struct vlan_description vlan_desc;
 
 	sta = ap_get_sta(hapd, addr);
 	if (!sta)
 		return -1;
 
-	os_memset(&vlan_desc, 0, sizeof(vlan_desc));
-	vlan_desc.notempty = 1;
-	vlan_desc.untagged = vlan_id;
-	if (!hostapd_vlan_valid(hapd->conf->vlan, &vlan_desc)) {
-		wpa_printf(MSG_INFO, "Invalid VLAN ID %d in wpa_psk_file",
-			   vlan_id);
-		return -1;
-	}
+	if (!(hapd->iface->drv_flags & WPA_DRIVER_FLAGS_VLAN_OFFLOAD)) {
+		struct vlan_description vlan_desc;
 
-	if (ap_sta_set_vlan(hapd, sta, &vlan_desc) < 0) {
-		wpa_printf(MSG_INFO,
-			   "Failed to assign VLAN ID %d from wpa_psk_file to "
-			   MACSTR, vlan_id, MAC2STR(sta->addr));
-		return -1;
+		os_memset(&vlan_desc, 0, sizeof(vlan_desc));
+		vlan_desc.notempty = 1;
+		vlan_desc.untagged = vlan_id;
+		if (!hostapd_vlan_valid(hapd->conf->vlan, &vlan_desc)) {
+			wpa_printf(MSG_INFO,
+				   "Invalid VLAN ID %d in wpa_psk_file",
+				   vlan_id);
+			return -1;
+		}
+
+		if (ap_sta_set_vlan(hapd, sta, &vlan_desc) < 0) {
+			wpa_printf(MSG_INFO,
+				   "Failed to assign VLAN ID %d from wpa_psk_file to "
+				   MACSTR, vlan_id, MAC2STR(sta->addr));
+			return -1;
+		}
+	} else {
+		sta->vlan_id = vlan_id;
 	}
 
 	wpa_printf(MSG_INFO,
@@ -1360,6 +1409,16 @@ int hostapd_setup_wpa(struct hostapd_data *hapd)
 		_conf.tx_status = 1;
 	if (hapd->iface->drv_flags & WPA_DRIVER_FLAGS_AP_MLME)
 		_conf.ap_mlme = 1;
+
+	if (!(hapd->iface->drv_flags & WPA_DRIVER_FLAGS_WIRED) &&
+	    (hapd->conf->wpa_deny_ptk0_rekey == PTK0_REKEY_ALLOW_NEVER ||
+	     (hapd->conf->wpa_deny_ptk0_rekey == PTK0_REKEY_ALLOW_LOCAL_OK &&
+	      !(hapd->iface->drv_flags & WPA_DRIVER_FLAGS_SAFE_PTK0_REKEYS)))) {
+		wpa_msg(hapd->msg_ctx, MSG_INFO,
+			"Disable PTK0 rekey support - replaced with disconnect");
+		_conf.wpa_deny_ptk0_rekey = 1;
+	}
+
 	hapd->wpa_auth = wpa_init(hapd->own_addr, &_conf, &cb, hapd);
 	if (hapd->wpa_auth == NULL) {
 		wpa_printf(MSG_ERROR, "WPA initialization failed.");

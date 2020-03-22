@@ -219,6 +219,16 @@ def test_wpas_mesh_open(dev, apdev):
     if mode != "mesh":
         raise Exception("Unexpected mode: " + mode)
 
+    dev[0].scan(freq="2462")
+    bss = dev[0].get_bss(dev[1].own_addr())
+    if bss and 'ie' in bss and "ff0724" in bss['ie']:
+        sta = dev[0].request("STA " + dev[1].own_addr())
+        logger.info("STA info:\n" + sta.rstrip())
+        if "[HE]" not in sta:
+            raise Exception("Missing STA HE flag")
+        if "[VHT]" in sta:
+            raise Exception("Unexpected STA VHT flag")
+
 def test_wpas_mesh_open_no_auto(dev, apdev):
     """wpa_supplicant open MESH network connectivity"""
     check_mesh_support(dev[0])
@@ -347,41 +357,6 @@ def test_wpas_mesh_secure_sae_password(dev, apdev):
     dev[1].mesh_group_add(id)
 
     check_mesh_joined_connected(dev, connectivity=True)
-
-def test_wpas_mesh_secure_sae_password_id(dev, apdev):
-    """Secure mesh using sae_password and password identifier"""
-    check_mesh_support(dev[0], secure=True)
-    dev[0].request("SET sae_groups ")
-    id = add_mesh_secure_net(dev[0], psk=False, sae_password=True,
-                             sae_password_id="pw id")
-    dev[0].mesh_group_add(id)
-
-    dev[1].request("SET sae_groups ")
-    id = add_mesh_secure_net(dev[1], sae_password=True,
-                             sae_password_id="pw id")
-    dev[1].mesh_group_add(id)
-
-    check_mesh_joined_connected(dev, connectivity=True)
-
-def test_wpas_mesh_secure_sae_password_id_mismatch(dev, apdev):
-    """Secure mesh using sae_password and password identifier mismatch"""
-    check_mesh_support(dev[0], secure=True)
-    dev[0].request("SET sae_groups ")
-    id = add_mesh_secure_net(dev[0], psk=False, sae_password=True,
-                             sae_password_id="pw id")
-    dev[0].mesh_group_add(id)
-
-    dev[1].request("SET sae_groups ")
-    id = add_mesh_secure_net(dev[1], sae_password=True,
-                             sae_password_id="wrong")
-    dev[1].mesh_group_add(id)
-
-    check_mesh_joined2(dev)
-
-    ev = dev[0].wait_event(["CTRL-EVENT-SAE-UNKNOWN-PASSWORD-IDENTIFIER"],
-                           timeout=10)
-    if ev is None:
-        raise Exception("Unknown Password Identifier not noticed")
 
 def test_mesh_secure_pmf(dev, apdev):
     """Secure mesh network connectivity with PMF enabled"""
@@ -1093,6 +1068,14 @@ def _test_wpas_mesh_open_vht40(dev, apdev):
         raise Exception("Unexpected SIGNAL_POLL value(2b): " + str(sig))
     if "CENTER_FRQ1=5190" not in sig:
         raise Exception("Unexpected SIGNAL_POLL value(3b): " + str(sig))
+
+    dev[0].scan(freq="5180")
+    bss = dev[0].get_bss(dev[1].own_addr())
+    if bss and 'ie' in bss and "ff0724" in bss['ie']:
+        sta = dev[0].request("STA " + dev[1].own_addr())
+        logger.info("STA info:\n" + sta.rstrip())
+        if "[HT][VHT][HE]" not in sta:
+            raise Exception("Missing STA flags")
 
     dev[0].mesh_group_remove()
     dev[1].mesh_group_remove()

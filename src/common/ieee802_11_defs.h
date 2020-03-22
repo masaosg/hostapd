@@ -458,7 +458,7 @@
 #define WLAN_EID_EXT_FILS_HLP_CONTAINER 5
 #define WLAN_EID_EXT_FILS_IP_ADDR_ASSIGN 6
 #define WLAN_EID_EXT_KEY_DELIVERY 7
-#define WLAN_EID_EXT_FILS_WRAPPED_DATA 8
+#define WLAN_EID_EXT_WRAPPED_DATA 8
 #define WLAN_EID_EXT_FTM_SYNC_INFO 9
 #define WLAN_EID_EXT_EXTENDED_REQUEST 10
 #define WLAN_EID_EXT_ESTIMATED_SERVICE_PARAMS 11
@@ -476,6 +476,7 @@
 #define WLAN_EID_EXT_EDMG_CAPABILITIES 61
 #define WLAN_EID_EXT_EDMG_OPERATION 62
 #define WLAN_EID_EXT_REJECTED_GROUPS 92
+#define WLAN_EID_EXT_ANTI_CLOGGING_TOKEN 93
 
 /* Extended Capabilities field */
 #define WLAN_EXT_CAPAB_20_40_COEX 0
@@ -557,6 +558,7 @@
 #define WLAN_EXT_CAPAB_COMPLETE_NON_TX_BSSID_PROFILE 80
 #define WLAN_EXT_CAPAB_SAE_PW_ID 81
 #define WLAN_EXT_CAPAB_SAE_PW_ID_EXCLUSIVELY 82
+#define WLAN_EXT_CAPAB_BEACON_PROTECTION 84
 
 /* Extended RSN Capabilities */
 /* bits 0-3: Field length (n-1) */
@@ -1873,7 +1875,8 @@ enum wnm_sleep_mode_response_status {
 /* WNM-Sleep Mode subelement IDs */
 enum wnm_sleep_mode_subelement_id {
 	WNM_SLEEP_SUBELEM_GTK = 0,
-	WNM_SLEEP_SUBELEM_IGTK = 1
+	WNM_SLEEP_SUBELEM_IGTK = 1,
+	WNM_SLEEP_SUBELEM_BIGTK = 2,
 };
 
 /* Channel Switch modes (802.11h) */
@@ -2155,6 +2158,8 @@ struct ieee80211_spatial_reuse {
 
 /* HE Capabilities Information defines */
 
+#define HE_MACCAP_TWT_RESPONDER			((u8) BIT(2))
+
 #define HE_PHYCAP_CHANNEL_WIDTH_SET_IDX		0
 #define HE_PHYCAP_CHANNEL_WIDTH_MASK		((u8) (BIT(1) | BIT(2) | \
 						      BIT(3) | BIT(4)))
@@ -2197,7 +2202,7 @@ struct ieee80211_spatial_reuse {
 #define HE_OPERATION_BSS_COLOR_MASK		((u32) (BIT(24) | BIT(25) | \
 							BIT(26) | BIT(27) | \
 							BIT(28) | BIT(29)))
-#define HE_OPERATION_PARTIAL_BSS_COLOR		((u32) BIT(30))
+#define HE_OPERATION_BSS_COLOR_PARTIAL		((u32) BIT(30))
 #define HE_OPERATION_BSS_COLOR_DISABLED		((u32) BIT(31))
 #define HE_OPERATION_BSS_COLOR_OFFSET		24
 

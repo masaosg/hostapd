@@ -182,6 +182,7 @@ struct hostapd_channel_data {
 	struct hostapd_wmm_rule wmm_rules[WMM_AC_NUM];
 };
 
+#define HE_MAC_CAPAB_0		0
 #define HE_MAX_MAC_CAPAB_SIZE	6
 #define HE_MAX_PHY_CAPAB_SIZE	11
 #define HE_MAX_MCS_CAPAB_SIZE	12
@@ -1402,14 +1403,6 @@ struct wpa_driver_ap_params {
 	u8 p2p_go_ctwindow;
 
 	/**
-	 * smps_mode - SMPS mode
-	 *
-	 * SMPS mode to be used by the AP, specified as the relevant bits of
-	 * ht_capab (i.e. HT_CAP_INFO_SMPS_*).
-	 */
-	unsigned int smps_mode;
-
-	/**
 	 * disable_dgaf - Whether group-addressed frames are disabled
 	 */
 	int disable_dgaf;
@@ -1487,6 +1480,26 @@ struct wpa_driver_ap_params {
 	 * he_spr_srg_obss_pd_max_offset - Maximum TX power offset
 	 */
 	 int he_spr_srg_obss_pd_max_offset;
+
+	/**
+	 * he_bss_color - Whether the BSS Color is disabled
+	 */
+	int he_bss_color_disabled;
+
+	/**
+	 * he_bss_color_partial - The BSS Color AID equation
+	 */
+	int he_bss_color_partial;
+
+	/**
+	 * he_bss_color - The BSS Color of the AP
+	 */
+	int he_bss_color;
+
+	/**
+	 * twt_responder - Whether Target Wait Time responder is enabled
+	 */
+	int twt_responder;
 };
 
 struct wpa_driver_mesh_bss_params {
@@ -1522,6 +1535,120 @@ struct wpa_driver_mesh_join_params {
 #define WPA_DRIVER_MESH_FLAG_SAE_AUTH	0x00000004
 #define WPA_DRIVER_MESH_FLAG_AMPE	0x00000008
 	unsigned int flags;
+};
+
+struct wpa_driver_set_key_params {
+	/**
+	 * ifname - Interface name (for multi-SSID/VLAN support) */
+	const char *ifname;
+
+	/**
+	 * alg - Encryption algorithm
+	 *
+	 * (%WPA_ALG_NONE, %WPA_ALG_WEP, %WPA_ALG_TKIP, %WPA_ALG_CCMP,
+	 * %WPA_ALG_IGTK, %WPA_ALG_GCMP, %WPA_ALG_GCMP_256, %WPA_ALG_CCMP_256,
+	 * %WPA_ALG_BIP_GMAC_128, %WPA_ALG_BIP_GMAC_256, %WPA_ALG_BIP_CMAC_256);
+	 * %WPA_ALG_NONE clears the key. */
+	enum wpa_alg alg;
+
+	/**
+	 * addr - Address of the peer STA
+	 *
+	 * (BSSID of the current AP when setting pairwise key in station mode),
+	 * ff:ff:ff:ff:ff:ff for broadcast keys, %NULL for default keys that
+	 * are used both for broadcast and unicast; when clearing keys, %NULL
+	 * is used to indicate that both the broadcast-only and default key of
+	 * the specified key index is to be cleared */
+	const u8 *addr;
+
+	/**
+	 * key_idx - Key index
+	 *
+	 * (0..3), usually 0 for unicast keys; 4..5 for IGTK; 6..7 for BIGTK */
+	int key_idx;
+
+	/**
+	 * set_tx - Configure this key as the default Tx key
+	 *
+	 * Only used when driver does not support separate unicast/individual
+	 * key */
+	int set_tx;
+
+	/**
+	 * seq - Sequence number/packet number
+	 *
+	 * seq_len octets, the next packet number to be used for in replay
+	 * protection; configured for Rx keys (in most cases, this is only used
+	 * with broadcast keys and set to zero for unicast keys); %NULL if not
+	 * set */
+	const u8 *seq;
+
+	/**
+	 * seq_len - Length of the seq, depends on the algorithm
+	 *
+	 * TKIP: 6 octets, CCMP/GCMP: 6 octets, IGTK: 6 octets */
+	size_t seq_len;
+
+	/**
+	 * key - Key buffer
+	 *
+	 * TKIP: 16-byte temporal key, 8-byte Tx Mic key, 8-byte Rx Mic Key */
+	const u8 *key;
+
+	/**
+	 * key_len - Length of the key buffer in octets
+	 *
+	 * WEP: 5 or 13, TKIP: 32, CCMP/GCMP: 16, IGTK: 16 */
+	size_t key_len;
+
+	/**
+	 * vlan_id - VLAN index (0..4095) for VLAN offload cases */
+	int vlan_id;
+
+	/**
+	 * key_flag - Additional key flags
+	 *
+	 * %KEY_FLAG_MODIFY
+	 *  Set when an already installed key must be updated.
+	 *  So far the only use-case is changing RX/TX status for
+	 *  pairwise keys. Must not be set when deleting a key.
+	 * %KEY_FLAG_DEFAULT
+	 *  Set when the key is also a default key. Must not be set when
+	 *  deleting a key.
+	 * %KEY_FLAG_RX
+	 *  The key is valid for RX. Must not be set when deleting a key.
+	 * %KEY_FLAG_TX
+	 *  The key is valid for TX. Must not be set when deleting a key.
+	 * %KEY_FLAG_GROUP
+	 *  The key is a broadcast or group key.
+	 * %KEY_FLAG_PAIRWISE
+	 *  The key is a pairwise key.
+	 * %KEY_FLAG_PMK
+	 *  The key is a Pairwise Master Key (PMK).
+	 *
+	 * Valid and pre-defined combinations are:
+	 * %KEY_FLAG_GROUP_RX_TX
+	 *  WEP key not to be installed as default key.
+	 * %KEY_FLAG_GROUP_RX_TX_DEFAULT
+	 *  Default WEP or WPA-NONE key.
+	 * %KEY_FLAG_GROUP_RX
+	 *  GTK key valid for RX only.
+	 * %KEY_FLAG_GROUP_TX_DEFAULT
+	 *  GTK key valid for TX only, immediately taking over TX.
+	 * %KEY_FLAG_PAIRWISE_RX_TX
+	 *  Pairwise key immediately becoming the active pairwise key.
+	 * %KEY_FLAG_PAIRWISE_RX
+	 *  Pairwise key not yet valid for TX. (Only usable when Extended
+	 *  Key ID is supported by the driver.)
+	 * %KEY_FLAG_PAIRWISE_RX_TX_MODIFY
+	 *  Enable TX for a pairwise key installed with
+	 *  KEY_FLAG_PAIRWISE_RX.
+	 *
+	 * Not a valid standalone key type but pre-defined to be combined
+	 * with other key_flags:
+	 * %KEY_FLAG_RX_TX
+	 *  RX/TX key. */
+	enum key_flag key_flag;
 };
 
 /**
@@ -1577,7 +1704,7 @@ struct wpa_driver_capa {
 /** Driver takes care of all DFS operations */
 #define WPA_DRIVER_FLAGS_DFS_OFFLOAD			0x00000004
 /** Driver takes care of RSN 4-way handshake internally; PMK is configured with
- * struct wpa_driver_ops::set_key using alg = WPA_ALG_PMK */
+ * struct wpa_driver_ops::set_key using key_flag = KEY_FLAG_PMK */
 #define WPA_DRIVER_FLAGS_4WAY_HANDSHAKE_8021X		0x00000008
 /** Driver is for a wired Ethernet interface */
 #define WPA_DRIVER_FLAGS_WIRED		0x00000010
@@ -1706,14 +1833,20 @@ struct wpa_driver_capa {
 #define WPA_DRIVER_FLAGS_4WAY_HANDSHAKE_PSK	0x0200000000000000ULL
 /** Driver supports a separate control port for EAPOL frames */
 #define WPA_DRIVER_FLAGS_CONTROL_PORT		0x0400000000000000ULL
+/** Driver supports VLAN offload */
+#define WPA_DRIVER_FLAGS_VLAN_OFFLOAD		0x0800000000000000ULL
+/** Driver supports UPDATE_FT_IES command */
+#define WPA_DRIVER_FLAGS_UPDATE_FT_IES		0x1000000000000000ULL
+/** Driver can correctly rekey PTKs without Extended Key ID */
+#define WPA_DRIVER_FLAGS_SAFE_PTK0_REKEYS	0x2000000000000000ULL
+/** Driver supports Beacon protection */
+#define WPA_DRIVER_FLAGS_BEACON_PROTECTION	0x4000000000000000ULL
+/** Driver supports Extended Key ID */
+#define WPA_DRIVER_FLAGS_EXTENDED_KEY_ID	0x8000000000000000ULL
 	u64 flags;
 
 #define FULL_AP_CLIENT_STATE_SUPP(drv_flags) \
 	(drv_flags & WPA_DRIVER_FLAGS_FULL_AP_CLIENT_STATE)
-
-#define WPA_DRIVER_SMPS_MODE_STATIC			0x00000001
-#define WPA_DRIVER_SMPS_MODE_DYNAMIC			0x00000002
-	unsigned int smps_modes;
 
 	unsigned int wmm_ac_supported:1;
 
@@ -2307,35 +2440,8 @@ struct wpa_driver_ops {
 
 	/**
 	 * set_key - Configure encryption key
-	 * @ifname: Interface name (for multi-SSID/VLAN support)
 	 * @priv: private driver interface data
-	 * @alg: encryption algorithm (%WPA_ALG_NONE, %WPA_ALG_WEP,
-	 *	%WPA_ALG_TKIP, %WPA_ALG_CCMP, %WPA_ALG_IGTK, %WPA_ALG_PMK,
-	 *	%WPA_ALG_GCMP, %WPA_ALG_GCMP_256, %WPA_ALG_CCMP_256,
-	 *	%WPA_ALG_BIP_GMAC_128, %WPA_ALG_BIP_GMAC_256,
-	 *	%WPA_ALG_BIP_CMAC_256);
-	 *	%WPA_ALG_NONE clears the key.
-	 * @addr: Address of the peer STA (BSSID of the current AP when setting
-	 *	pairwise key in station mode), ff:ff:ff:ff:ff:ff for
-	 *	broadcast keys, %NULL for default keys that are used both for
-	 *	broadcast and unicast; when clearing keys, %NULL is used to
-	 *	indicate that both the broadcast-only and default key of the
-	 *	specified key index is to be cleared
-	 * @key_idx: key index (0..3), usually 0 for unicast keys; 0..4095 for
-	 *	IGTK
-	 * @set_tx: configure this key as the default Tx key (only used when
-	 *	driver does not support separate unicast/individual key
-	 * @seq: sequence number/packet number, seq_len octets, the next
-	 *	packet number to be used for in replay protection; configured
-	 *	for Rx keys (in most cases, this is only used with broadcast
-	 *	keys and set to zero for unicast keys); %NULL if not set
-	 * @seq_len: length of the seq, depends on the algorithm:
-	 *	TKIP: 6 octets, CCMP/GCMP: 6 octets, IGTK: 6 octets
-	 * @key: key buffer; TKIP: 16-byte temporal key, 8-byte Tx Mic key,
-	 *	8-byte Rx Mic Key
-	 * @key_len: length of the key buffer in octets (WEP: 5 or 13,
-	 *	TKIP: 32, CCMP/GCMP: 16, IGTK: 16)
-	 *
+	 * @params: Key parameters
 	 * Returns: 0 on success, -1 on failure
 	 *
 	 * Configure the given key for the kernel driver. If the driver
@@ -2356,10 +2462,7 @@ struct wpa_driver_ops {
 	 * in driver_*.c set_key() implementation, see driver_ndis.c for an
 	 * example on how this can be done.
 	 */
-	int (*set_key)(const char *ifname, void *priv, enum wpa_alg alg,
-		       const u8 *addr, int key_idx, int set_tx,
-		       const u8 *seq, size_t seq_len,
-		       const u8 *key, size_t key_len);
+	int (*set_key)(void *priv, struct wpa_driver_set_key_params *params);
 
 	/**
 	 * init - Initialize driver interface
@@ -2613,11 +2716,13 @@ struct wpa_driver_ops {
 	 * @csa_offs_len: Number of elements in csa_offs
 	 * @no_encrypt: Do not encrypt frame even if appropriate key exists
 	 *	(used only for testing purposes)
+	 * @wait: Time to wait off-channel for a response (in ms), or zero
 	 * Returns: 0 on success, -1 on failure
 	 */
 	int (*send_mlme)(void *priv, const u8 *data, size_t data_len,
 			 int noack, unsigned int freq, const u16 *csa_offs,
-			 size_t csa_offs_len, int no_encrypt);
+			 size_t csa_offs_len, int no_encrypt,
+			 unsigned int wait);
 
 	/**
 	 * update_ft_ies - Update FT (IEEE 802.11r) IEs
@@ -5620,7 +5725,15 @@ union wpa_event_data {
 	 * @pri_freq: Selected primary frequency
 	 * @sec_freq: Selected secondary frequency
 	 * @vht_seg0_center_ch: VHT mode Segment0 center channel
+	 *	The value is the index of the channel center frequency for
+	 *	20 MHz, 40 MHz, and 80 MHz channels. The value is the center
+	 *	frequency index of the primary 80 MHz segment for 160 MHz and
+	 *	80+80 MHz channels.
 	 * @vht_seg1_center_ch: VHT mode Segment1 center channel
+	 *	The value is zero for 20 MHz, 40 MHz, and 80 MHz channels. The
+	 *	value is the index of the channel center frequency for 160 MHz
+	 *	channels and the center frequency index of the secondary 80 MHz
+	 *	segment for 80+80 MHz channels.
 	 * @ch_width: Selected Channel width by driver. Driver may choose to
 	 *	change hostapd configured ACS channel width due driver internal
 	 *	channel restrictions.

@@ -119,6 +119,11 @@ def check_dh_dsa_support(dev):
     if tls.startswith("internal"):
         raise HwsimSkip("DH DSA not supported with this TLS library: " + tls)
 
+def check_ec_support(dev):
+    tls = dev.request("GET tls_library")
+    if tls.startswith("internal"):
+        raise HwsimSkip("EC not supported with this TLS library: " + tls)
+
 def read_pem(fname):
     with open(fname, "r") as f:
         lines = f.readlines()
@@ -4182,13 +4187,13 @@ def ocsp_resp_ca_signed(reqfile, outfile, status):
         return
     arg = ["openssl", "ocsp",
            "-index", "auth_serv/index%s.txt" % status,
-	   "-rsigner", "auth_serv/ca.pem",
-	   "-rkey", "auth_serv/ca-key.pem",
-	   "-CA", "auth_serv/ca.pem",
-	   "-ndays", "7",
-	   "-reqin", reqfile,
-	   "-resp_no_certs",
-	   "-respout", outfile]
+           "-rsigner", "auth_serv/ca.pem",
+           "-rkey", "auth_serv/ca-key.pem",
+           "-CA", "auth_serv/ca.pem",
+           "-ndays", "7",
+           "-reqin", reqfile,
+           "-resp_no_certs",
+           "-respout", outfile]
     run_openssl(arg)
     if not os.path.exists(outfile):
         raise HwsimSkip("No OCSP response available")
@@ -4199,12 +4204,12 @@ def ocsp_resp_server_signed(reqfile, outfile):
         return
     arg = ["openssl", "ocsp",
            "-index", "auth_serv/index.txt",
-	   "-rsigner", "auth_serv/server.pem",
-	   "-rkey", "auth_serv/server.key",
-	   "-CA", "auth_serv/ca.pem",
-	   "-ndays", "7",
-	   "-reqin", reqfile,
-	   "-respout", outfile]
+           "-rsigner", "auth_serv/server.pem",
+           "-rkey", "auth_serv/server.key",
+           "-CA", "auth_serv/ca.pem",
+           "-ndays", "7",
+           "-reqin", reqfile,
+           "-respout", outfile]
     run_openssl(arg)
     if not os.path.exists(outfile):
         raise HwsimSkip("No OCSP response available")
@@ -5126,6 +5131,46 @@ def test_ap_wpa2_eap_reauth(dev, apdev):
     if state != "COMPLETED":
         raise Exception("Reauthentication did not complete")
 
+def test_ap_wpa2_eap_reauth_ptk_rekey_blocked_ap(dev, apdev):
+    """WPA2-Enterprise and Authenticator forcing reauthentication with PTK rekey blocked on AP"""
+    params = hostapd.wpa2_eap_params(ssid="test-wpa2-eap")
+    params['eap_reauth_period'] = '2'
+    params['wpa_deny_ptk0_rekey'] = '2'
+    hapd = hostapd.add_ap(apdev[0], params)
+    eap_connect(dev[0], hapd, "PAX", "pax.user@example.com",
+                password_hex="0123456789abcdef0123456789abcdef")
+    logger.info("Wait for disconnect due to reauth")
+    ev = dev[0].wait_event(["CTRL-EVENT-EAP-STARTED",
+                            "CTRL-EVENT-DISCONNECTED"], timeout=10)
+    if ev is None:
+        raise Exception("Timeout on reauthentication")
+    if "CTRL-EVENT-EAP-STARTED" in ev:
+        raise Exception("Reauthentication without disconnect")
+
+    ev = dev[0].wait_event(["WPA: Key negotiation completed"], timeout=1)
+    if ev is None:
+        raise Exception("Timeout on reconnect")
+
+def test_ap_wpa2_eap_reauth_ptk_rekey_blocked_sta(dev, apdev):
+    """WPA2-Enterprise and Authenticator forcing reauthentication with PTK rekey blocked on station"""
+    params = hostapd.wpa2_eap_params(ssid="test-wpa2-eap")
+    params['eap_reauth_period'] = '2'
+    hapd = hostapd.add_ap(apdev[0], params)
+    eap_connect(dev[0], hapd, "PAX", "pax.user@example.com",
+                password_hex="0123456789abcdef0123456789abcdef",
+                wpa_deny_ptk0_rekey="2")
+    logger.info("Wait for disconnect due to reauth")
+    ev = dev[0].wait_event(["CTRL-EVENT-EAP-STARTED",
+                            "CTRL-EVENT-DISCONNECTED"], timeout=10)
+    if ev is None:
+        raise Exception("Timeout on reauthentication")
+    if "CTRL-EVENT-EAP-STARTED" in ev:
+        raise Exception("Reauthentication without disconnect")
+
+    ev = dev[0].wait_event(["WPA: Key negotiation completed"], timeout=1)
+    if ev is None:
+        raise Exception("Timeout on reconnect")
+
 def test_ap_wpa2_eap_request_identity_message(dev, apdev):
     """Optional displayable message in EAP Request-Identity"""
     params = hostapd.wpa2_eap_params(ssid="test-wpa2-eap")
@@ -5899,6 +5944,7 @@ def test_ap_wpa2_eap_tls_13_ec(dev, apdev):
 
 def test_ap_wpa2_eap_tls_rsa_and_ec(dev, apdev, params):
     """EAP-TLS and both RSA and EC sertificates certificates"""
+    check_ec_support(dev[0])
     ca = os.path.join(params['logdir'], "ap_wpa2_eap_tls_rsa_and_ec.ca.pem")
     with open(ca, "w") as f:
         with open("auth_serv/ca.pem", "r") as f2:
@@ -5942,6 +5988,7 @@ def test_ap_wpa2_eap_tls_rsa_and_ec(dev, apdev, params):
 
 def test_ap_wpa2_eap_tls_ec_and_rsa(dev, apdev, params):
     """EAP-TLS and both EC and RSA sertificates certificates"""
+    check_ec_support(dev[0])
     ca = os.path.join(params['logdir'], "ap_wpa2_eap_tls_ec_and_rsa.ca.pem")
     with open(ca, "w") as f:
         with open("auth_serv/ca.pem", "r") as f2:

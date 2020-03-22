@@ -1441,6 +1441,7 @@ static const char *network_fields[] = {
 	"dot11MeshHoldingTimeout",
 #endif /* CONFIG_MESH */
 	"wpa_ptk_rekey", "bgscan", "ignore_broadcast_ssid",
+	"wpa_deny_ptk0_rekey",
 	"enable_edmg", "edmg_channel",
 #ifdef CONFIG_P2P
 	"go_p2p_dev_addr", "p2p_client_list", "psk_list",
@@ -1782,7 +1783,7 @@ static int wpa_cli_cmd_interface(struct wpa_ctrl *ctrl, int argc, char *argv[])
 	}
 
 	if (wpa_cli_open_connection(ctrl_ifname, 1) == 0) {
-		printf("Connected to interface '%s.\n", ctrl_ifname);
+		printf("Connected to interface '%s'.\n", ctrl_ifname);
 	} else {
 		printf("Could not connect to interface '%s' - re-trying\n",
 		       ctrl_ifname);

@@ -58,6 +58,7 @@ long_tests = ["ap_roam_open",
               "dfs",
               "dfs_ht40_minus",
               "dfs_etsi",
+              "dfs_radar_vht80_downgrade",
               "ap_acs_dfs",
               "grpform_cred_ready_timeout",
               "hostapd_oom_wpa2_eap_connect",
@@ -75,6 +76,8 @@ long_tests = ["ap_roam_open",
               "ap_wps_iteration",
               "ap_wps_iteration_error",
               "ap_wps_pbc_timeout",
+              "ap_wps_pbc_ap_timeout",
+              "ap_wps_pin_ap_timeout",
               "ap_wps_http_timeout",
               "p2p_go_move_reg_change",
               "p2p_go_move_active",
@@ -104,7 +107,7 @@ def vm_read_stdout(vm, test_queue):
         if e.errno == errno.EAGAIN:
             return False
         raise
-    logger.debug("VM[%d] stdout.read[%s]" % (vm['idx'], out))
+    logger.debug("VM[%d] stdout.read[%s]" % (vm['idx'], out.rstrip()))
     pending = vm['pending'] + out
     lines = []
     while True:
@@ -389,6 +392,8 @@ def main():
                    help="run tests under valgrind")
     p.add_argument('--telnet', dest='telnet', metavar='<baseport>', type=int,
                    help="enable telnet server inside VMs, specify the base port here")
+    p.add_argument('--nocurses', dest='nocurses', action='store_const',
+                   const=True, default=False, help="Don't use curses for output")
     p.add_argument('params', nargs='*')
     args = p.parse_args()
 
@@ -452,7 +457,10 @@ def main():
         tests = [t for t in tests if t not in long_tests]
 
     logger.setLevel(debug_level)
-    log_handler = logging.FileHandler('parallel-vm.log')
+    if not args.nocurses:
+        log_handler = logging.FileHandler('parallel-vm.log')
+    else:
+        log_handler = logging.StreamHandler(sys.stdout)
     log_handler.setLevel(debug_level)
     fmt = "%(asctime)s %(levelname)s %(message)s"
     log_formatter = logging.Formatter(fmt)
@@ -481,7 +489,21 @@ def main():
         vm[i]['skip_reason'] = []
     print('')
 
-    curses.wrapper(show_progress)
+    if not args.nocurses:
+        curses.wrapper(show_progress)
+    else:
+        class FakeScreen:
+            def leaveok(self, n):
+                pass
+            def refresh(self):
+                pass
+            def addstr(self, *args, **kw):
+                pass
+            def move(self, x, y):
+                pass
+            def clrtoeol(self):
+                pass
+        show_progress(FakeScreen())
 
     with open('{}/{}-parallel.log'.format(dir, timestamp), 'w') as f:
         for i in range(0, num_servers):
@@ -573,6 +595,14 @@ def main():
     missing['wmediumd not available'] = 'wmediumd'
     missing['DPP not supported'] = 'CONFIG_DPP'
     missing['DPP version 2 not supported'] = 'CONFIG_DPP2'
+    missing['EAP method PWD not supported in the build'] = 'CONFIG_EAP_PWD'
+    missing['EAP method TEAP not supported in the build'] = 'CONFIG_EAP_TEAP'
+    missing['FILS not supported'] = 'CONFIG_FILS'
+    missing['FILS-SK-PFS not supported'] = 'CONFIG_FILS_SK_PFS'
+    missing['OWE not supported'] = 'CONFIG_OWE'
+    missing['SAE not supported'] = 'CONFIG_SAE'
+    missing['Not using OpenSSL'] = 'CONFIG_TLS=openssl'
+    missing['wpa_supplicant TLS library is not OpenSSL: internal'] = 'CONFIG_TLS=openssl'
     missing_items = []
     other_reasons = []
     for reason in sorted(set(skip_reason)):

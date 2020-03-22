@@ -193,7 +193,9 @@ struct wpa_group {
 	Boolean first_sta_seen;
 	Boolean reject_4way_hs_for_entropy;
 	u8 IGTK[2][WPA_IGTK_MAX_LEN];
+	u8 BIGTK[2][WPA_IGTK_MAX_LEN];
 	int GN_igtk, GM_igtk;
+	int GN_bigtk, GM_bigtk;
 	/* Number of references except those in struct wpa_group->next */
 	unsigned int references;
 	unsigned int num_setup_iface;
@@ -292,7 +294,7 @@ int wpa_write_ftie(struct wpa_auth_config *conf, int use_sha384,
 		   const u8 *r0kh_id, size_t r0kh_id_len,
 		   const u8 *anonce, const u8 *snonce,
 		   u8 *buf, size_t len, const u8 *subelem,
-		   size_t subelem_len);
+		   size_t subelem_len, int rsnxe_used);
 int wpa_auth_derive_ptk_ft(struct wpa_state_machine *sm, struct wpa_ptk *ptk);
 struct wpa_ft_pmk_cache * wpa_ft_pmk_cache_init(void);
 void wpa_ft_pmk_cache_deinit(struct wpa_ft_pmk_cache *cache);

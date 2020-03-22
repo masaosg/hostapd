@@ -135,11 +135,18 @@ def test_ap_multi_bss_acs(dev, apdev):
 
 def test_ap_acs_40mhz(dev, apdev):
     """Automatic channel selection for 40 MHz channel"""
+    run_ap_acs_40mhz(dev, apdev, '[HT40+]')
+
+def test_ap_acs_40mhz_plus_or_minus(dev, apdev):
+    """Automatic channel selection for 40 MHz channel (plus or minus)"""
+    run_ap_acs_40mhz(dev, apdev, '[HT40+][HT40-]')
+
+def run_ap_acs_40mhz(dev, apdev, ht_capab):
     clear_scan_cache(apdev[0])
     force_prev_ap_on_24g(apdev[0])
     params = hostapd.wpa2_params(ssid="test-acs", passphrase="12345678")
     params['channel'] = '0'
-    params['ht_capab'] = '[HT40+]'
+    params['ht_capab'] = ht_capab
     hapd = hostapd.add_ap(apdev[0], params, wait_enabled=False)
     wait_acs(hapd)
 
@@ -508,3 +515,62 @@ def test_ap_acs_vht160_dfs(dev, apdev, params):
         hostapd.cmd_execute(apdev[0], ['iw', 'reg', 'set', '00'])
         dev[0].wait_event(["CTRL-EVENT-REGDOM-CHANGE"], timeout=0.5)
         dev[0].flush_scan_cache()
+
+def test_ap_acs_hw_mode_any(dev, apdev):
+    """Automatic channel selection with hw_mode=any"""
+    force_prev_ap_on_24g(apdev[0])
+    params = hostapd.wpa2_params(ssid="test-acs", passphrase="12345678")
+    params['channel'] = '0'
+    params['hw_mode'] = 'any'
+    hapd = hostapd.add_ap(apdev[0], params, wait_enabled=False)
+    wait_acs(hapd)
+
+    freq = hapd.get_status_field("freq")
+    if int(freq) < 2400:
+        raise Exception("Unexpected frequency")
+
+    dev[0].connect("test-acs", psk="12345678", scan_freq=freq)
+
+def test_ap_acs_hw_mode_any_5ghz(dev, apdev):
+    """Automatic channel selection with hw_mode=any and 5 GHz"""
+    try:
+        hapd = None
+        force_prev_ap_on_5g(apdev[0])
+        params = hostapd.wpa2_params(ssid="test-acs", passphrase="12345678")
+        params['hw_mode'] = 'any'
+        params['channel'] = '0'
+        params['country_code'] = 'US'
+        params['acs_chan_bias'] = '36:0.7 40:0.7 44:0.7 48:0.7'
+        hapd = hostapd.add_ap(apdev[0], params, wait_enabled=False)
+        wait_acs(hapd)
+        freq = hapd.get_status_field("freq")
+        if int(freq) < 5000:
+            raise Exception("Unexpected frequency")
+
+        dev[0].connect("test-acs", psk="12345678", scan_freq=freq)
+        dev[0].wait_regdom(country_ie=True)
+    finally:
+        clear_regdom(hapd, dev)
+
+def test_ap_acs_with_fallback_to_20(dev, apdev):
+    """Automatic channel selection with fallback to 20 MHz"""
+    force_prev_ap_on_24g(apdev[0])
+    params = {"ssid": "legacy-20",
+              "channel": "7", "ieee80211n": "0"}
+    hostapd.add_ap(apdev[1], params)
+    params = hostapd.wpa2_params(ssid="test-acs", passphrase="12345678")
+    params['channel'] = '0'
+    params['acs_chan_bias'] = '6:0.1'
+    params['ht_capab'] = '[HT40+]'
+    hapd = hostapd.add_ap(apdev[0], params, wait_enabled=False)
+    wait_acs(hapd)
+
+    freq = hapd.get_status_field("freq")
+    if int(freq) < 2400:
+        raise Exception("Unexpected frequency")
+
+    dev[0].connect("test-acs", psk="12345678", scan_freq=freq)
+    sig = dev[0].request("SIGNAL_POLL").splitlines()
+    logger.info("SIGNAL_POLL: " + str(sig))
+    if "WIDTH=20 MHz" not in sig:
+        raise Exception("Station did not report 20 MHz bandwidth")

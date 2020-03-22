@@ -125,6 +125,7 @@ static int hostapd_wps_new_psk_cb(void *ctx, const u8 *mac_addr,
 	os_memcpy(p->addr, mac_addr, ETH_ALEN);
 	os_memcpy(p->p2p_dev_addr, p2p_dev_addr, ETH_ALEN);
 	os_memcpy(p->psk, psk, PMK_LEN);
+	p->wps = 1;
 
 	if (hapd->new_psk_cb) {
 		hapd->new_psk_cb(hapd->new_psk_cb_ctx, mac_addr, p2p_dev_addr,
@@ -137,16 +138,17 @@ static int hostapd_wps_new_psk_cb(void *ctx, const u8 *mac_addr,
 	if (ssid->wpa_psk_file) {
 		FILE *f;
 		char hex[PMK_LEN * 2 + 1];
+
 		/* Add the new PSK to PSK list file */
 		f = fopen(ssid->wpa_psk_file, "a");
-		if (f == NULL) {
-			wpa_printf(MSG_DEBUG, "Failed to add the PSK to "
-				   "'%s'", ssid->wpa_psk_file);
+		if (!f) {
+			wpa_printf(MSG_DEBUG, "Failed to add the PSK to '%s'",
+				   ssid->wpa_psk_file);
 			return -1;
 		}
 
 		wpa_snprintf_hex(hex, sizeof(hex), psk, psk_len);
-		fprintf(f, MACSTR " %s\n", MAC2STR(mac_addr), hex);
+		fprintf(f, "wps=1 " MACSTR " %s\n", MAC2STR(mac_addr), hex);
 		fclose(f);
 	}
 
@@ -266,6 +268,44 @@ static void hostapd_wps_enrollee_seen_cb(void *ctx, const u8 *addr,
 		     wps_dev_type_bin2str(pri_dev_type, devtype,
 					  sizeof(devtype)),
 		     config_methods, dev_password_id, request_type, dev_name);
+}
+
+
+static int hostapd_wps_lookup_pskfile_cb(void *ctx, const u8 *mac_addr,
+					 const u8 **psk)
+{
+	const struct hostapd_data *hapd = ctx;
+	const struct hostapd_wpa_psk *wpa_psk;
+	const u8 *any_psk = NULL;
+	const u8 *dev_psk = NULL;
+
+	for (wpa_psk = hapd->conf->ssid.wpa_psk; wpa_psk;
+	     wpa_psk = wpa_psk->next) {
+		if (!wpa_psk->wps)
+			continue;
+
+		if (!any_psk && is_zero_ether_addr(wpa_psk->addr))
+			any_psk = wpa_psk->psk;
+
+		if (mac_addr && !dev_psk &&
+		    os_memcmp(mac_addr, wpa_psk->addr, ETH_ALEN) == 0) {
+			dev_psk = wpa_psk->psk;
+			break;
+		}
+	}
+
+	if (dev_psk) {
+		*psk = dev_psk;
+	} else if (any_psk) {
+		*psk = any_psk;
+	} else {
+		*psk = NULL;
+		wpa_printf(MSG_DEBUG,
+			   "WPS: No appropriate PSK in wpa_psk_file");
+		return 0;
+	}
+
+	return 1;
 }
 
 
@@ -611,8 +651,10 @@ static int hapd_wps_cred_cb(struct hostapd_data *hapd, void *ctx)
 		    (str_starts(buf, "ssid=") ||
 		     str_starts(buf, "ssid2=") ||
 		     str_starts(buf, "auth_algs=") ||
+#ifdef CONFIG_WEP
 		     str_starts(buf, "wep_default_key=") ||
 		     str_starts(buf, "wep_key") ||
+#endif /* CONFIG_WEP */
 		     str_starts(buf, "wps_state=") ||
 		     (pmf_changed && str_starts(buf, "ieee80211w=")) ||
 		     str_starts(buf, "wpa=") ||
@@ -1156,6 +1198,7 @@ int hostapd_init_wps(struct hostapd_data *hapd,
 		wpa_snprintf_hex((char *) wps->network_key, 2 * PMK_LEN + 1,
 				 conf->ssid.wpa_psk->psk, PMK_LEN);
 		wps->network_key_len = 2 * PMK_LEN;
+#ifdef CONFIG_WEP
 	} else if (conf->ssid.wep.keys_set && conf->ssid.wep.key[0]) {
 		wps->network_key = os_malloc(conf->ssid.wep.len[0]);
 		if (wps->network_key == NULL)
@@ -1163,6 +1206,7 @@ int hostapd_init_wps(struct hostapd_data *hapd,
 		os_memcpy(wps->network_key, conf->ssid.wep.key[0],
 			  conf->ssid.wep.len[0]);
 		wps->network_key_len = conf->ssid.wep.len[0];
+#endif /* CONFIG_WEP */
 	}
 
 	if (conf->ssid.wpa_psk) {
@@ -1213,14 +1257,13 @@ int hostapd_init_wps(struct hostapd_data *hapd,
 	cfg.pin_needed_cb = hostapd_wps_pin_needed_cb;
 	cfg.reg_success_cb = hostapd_wps_reg_success_cb;
 	cfg.enrollee_seen_cb = hostapd_wps_enrollee_seen_cb;
+	cfg.lookup_pskfile_cb = hostapd_wps_lookup_pskfile_cb;
 	cfg.cb_ctx = hapd;
 	cfg.skip_cred_build = conf->skip_cred_build;
 	cfg.extra_cred = conf->extra_cred;
 	cfg.extra_cred_len = conf->extra_cred_len;
 	cfg.disable_auto_conf = (hapd->conf->wps_cred_processing == 1) &&
 		conf->skip_cred_build;
-	if (conf->ssid.security_policy == SECURITY_STATIC_WEP)
-		cfg.static_wep_only = 1;
 	cfg.dualband = interface_count(hapd->iface) > 1;
 	if ((wps->dev.rf_bands & (WPS_RF_50GHZ | WPS_RF_24GHZ)) ==
 	    (WPS_RF_50GHZ | WPS_RF_24GHZ))

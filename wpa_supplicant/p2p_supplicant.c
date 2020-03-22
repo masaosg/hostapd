@@ -1912,7 +1912,7 @@ static int wpas_p2p_freq_to_edmg_channel(struct wpa_supplicant *wpa_s,
 		return -1;
 
 	hwmode = get_mode(wpa_s->hw.modes, wpa_s->hw.num_modes,
-			  HOSTAPD_MODE_IEEE80211AD);
+			  HOSTAPD_MODE_IEEE80211AD, 0);
 	if (!hwmode) {
 		wpa_printf(MSG_ERROR,
 			   "Unsupported AP mode: HOSTAPD_MODE_IEEE80211AD");
@@ -2691,7 +2691,7 @@ static int wpas_send_probe_resp(void *ctx, const struct wpabuf *buf,
 {
 	struct wpa_supplicant *wpa_s = ctx;
 	return wpa_drv_send_mlme(wpa_s, wpabuf_head(buf), wpabuf_len(buf), 1,
-				 freq);
+				 freq, 0);
 }
 
 
@@ -3725,7 +3725,8 @@ static int wpas_p2p_setup_channels(struct wpa_supplicant *wpa_s,
 		if (o->p2p == NO_P2P_SUPP)
 			continue;
 
-		mode = get_mode(wpa_s->hw.modes, wpa_s->hw.num_modes, o->mode);
+		mode = get_mode(wpa_s->hw.modes, wpa_s->hw.num_modes, o->mode,
+				is_6ghz_op_class(o->op_class));
 		if (mode == NULL)
 			continue;
 		if (mode->mode == HOSTAPD_MODE_IEEE80211G)
@@ -3735,23 +3736,32 @@ static int wpas_p2p_setup_channels(struct wpa_supplicant *wpa_s,
 			res = wpas_p2p_verify_channel(wpa_s, mode, ch, o->bw);
 			if (res == ALLOWED) {
 				if (reg == NULL) {
+					if (cla == P2P_MAX_REG_CLASSES)
+						continue;
 					wpa_printf(MSG_DEBUG, "P2P: Add operating class %u",
 						   o->op_class);
 					reg = &chan->reg_class[cla];
 					cla++;
 					reg->reg_class = o->op_class;
 				}
+				if (reg->channels == P2P_MAX_REG_CLASS_CHANNELS)
+					continue;
 				reg->channel[reg->channels] = ch;
 				reg->channels++;
 			} else if (res == NO_IR &&
 				   wpa_s->conf->p2p_add_cli_chan) {
 				if (cli_reg == NULL) {
+					if (cli_cla == P2P_MAX_REG_CLASSES)
+						continue;
 					wpa_printf(MSG_DEBUG, "P2P: Add operating class %u (client only)",
 						   o->op_class);
 					cli_reg = &cli_chan->reg_class[cli_cla];
 					cli_cla++;
 					cli_reg->reg_class = o->op_class;
 				}
+				if (cli_reg->channels ==
+				    P2P_MAX_REG_CLASS_CHANNELS)
+					continue;
 				cli_reg->channel[cli_reg->channels] = ch;
 				cli_reg->channels++;
 			}
@@ -6291,7 +6301,7 @@ static int wpas_p2p_init_go_params(struct wpa_supplicant *wpa_s,
 			cand = wpa_s->p2p_group_common_freqs[i];
 			mode = ieee80211_freq_to_chan(cand, &chan);
 			hwmode = get_mode(wpa_s->hw.modes, wpa_s->hw.num_modes,
-					  mode);
+					  mode, is_6ghz_freq(cand));
 			if (!hwmode ||
 			    wpas_p2p_verify_channel(wpa_s, hwmode, chan,
 						    BW80) != ALLOWED)
@@ -6318,7 +6328,7 @@ static int wpas_p2p_init_go_params(struct wpa_supplicant *wpa_s,
 			cand = wpa_s->p2p_group_common_freqs[i];
 			mode = ieee80211_freq_to_chan(cand, &chan);
 			hwmode = get_mode(wpa_s->hw.modes, wpa_s->hw.num_modes,
-					  mode);
+					  mode, is_6ghz_freq(cand));
 			if (!wpas_same_band(wpa_s->current_ssid->frequency,
 					    cand) ||
 			    !hwmode ||

@@ -179,6 +179,7 @@ extern "C" {
 #define DPP_EVENT_NET_ACCESS_KEY "DPP-NET-ACCESS-KEY "
 #define DPP_EVENT_MISSING_CONNECTOR "DPP-MISSING-CONNECTOR "
 #define DPP_EVENT_NETWORK_ID "DPP-NETWORK-ID "
+#define DPP_EVENT_CONFIGURATOR_ID "DPP-CONFIGURATOR-ID "
 #define DPP_EVENT_RX "DPP-RX "
 #define DPP_EVENT_TX "DPP-TX "
 #define DPP_EVENT_TX_STATUS "DPP-TX-STATUS "
@@ -378,6 +379,10 @@ extern "C" {
 /* New interface addition or removal for 4addr WDS SDA */
 #define WDS_STA_INTERFACE_ADDED "WDS-STA-INTERFACE-ADDED "
 #define WDS_STA_INTERFACE_REMOVED "WDS-STA-INTERFACE-REMOVED "
+
+#ifndef BIT
+#define BIT(x) (1U << (x))
+#endif
 
 /* BSS command information masks */
 

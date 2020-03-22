@@ -1,7 +1,7 @@
 /*
  * wpa_supplicant - DPP
  * Copyright (c) 2017, Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation
+ * Copyright (c) 2018-2020, The Linux Foundation
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -103,6 +103,71 @@ int wpas_dpp_nfc_uri(struct wpa_supplicant *wpa_s, const char *cmd)
 		return -1;
 
 	return bi->id;
+}
+
+
+int wpas_dpp_nfc_handover_req(struct wpa_supplicant *wpa_s, const char *cmd)
+{
+	const char *pos;
+	struct dpp_bootstrap_info *peer_bi, *own_bi;
+
+	pos = os_strstr(cmd, " own=");
+	if (!pos)
+		return -1;
+	pos += 5;
+	own_bi = dpp_bootstrap_get_id(wpa_s->dpp, atoi(pos));
+	if (!own_bi)
+		return -1;
+
+	pos = os_strstr(cmd, " uri=");
+	if (!pos)
+		return -1;
+	pos += 5;
+	peer_bi = dpp_add_nfc_uri(wpa_s->dpp, pos);
+	if (!peer_bi) {
+		wpa_printf(MSG_INFO,
+			   "DPP: Failed to parse URI from NFC Handover Request");
+		return -1;
+	}
+
+	if (dpp_nfc_update_bi(own_bi, peer_bi) < 0)
+		return -1;
+
+	return peer_bi->id;
+}
+
+
+int wpas_dpp_nfc_handover_sel(struct wpa_supplicant *wpa_s, const char *cmd)
+{
+	const char *pos;
+	struct dpp_bootstrap_info *peer_bi, *own_bi;
+
+	pos = os_strstr(cmd, " own=");
+	if (!pos)
+		return -1;
+	pos += 5;
+	own_bi = dpp_bootstrap_get_id(wpa_s->dpp, atoi(pos));
+	if (!own_bi)
+		return -1;
+
+	pos = os_strstr(cmd, " uri=");
+	if (!pos)
+		return -1;
+	pos += 5;
+	peer_bi = dpp_add_nfc_uri(wpa_s->dpp, pos);
+	if (!peer_bi) {
+		wpa_printf(MSG_INFO,
+			   "DPP: Failed to parse URI from NFC Handover Select");
+		return -1;
+	}
+
+	if (peer_bi->curve != own_bi->curve) {
+		wpa_printf(MSG_INFO,
+			   "DPP: Peer (NFC Handover Selector) used different curve");
+		return -1;
+	}
+
+	return peer_bi->id;
 }
 
 
@@ -686,6 +751,8 @@ int wpas_dpp_auth_init(struct wpa_supplicant *wpa_s, const char *cmd)
 			wpa_s->dpp_netrole = DPP_NETROLE_CONFIGURATOR;
 		else
 			wpa_s->dpp_netrole = DPP_NETROLE_STA;
+	} else {
+		wpa_s->dpp_netrole = DPP_NETROLE_STA;
 	}
 
 	pos = os_strstr(cmd, " neg_freq=");
@@ -1197,6 +1264,32 @@ static int wpas_dpp_handle_config_obj(struct wpa_supplicant *wpa_s,
 }
 
 
+static int wpas_dpp_handle_key_pkg(struct wpa_supplicant *wpa_s,
+				   struct dpp_asymmetric_key *key)
+{
+#ifdef CONFIG_DPP2
+	int res;
+
+	if (!key)
+		return 0;
+
+	wpa_printf(MSG_DEBUG, "DPP: Received Configurator backup");
+	wpa_msg(wpa_s, MSG_INFO, DPP_EVENT_CONF_RECEIVED);
+
+	while (key) {
+		res = dpp_configurator_from_backup(wpa_s->dpp, key);
+		if (res < 0)
+			return -1;
+		wpa_msg(wpa_s, MSG_INFO, DPP_EVENT_CONFIGURATOR_ID "%d",
+			res);
+		key = key->next;
+	}
+#endif /* CONFIG_DPP2 */
+
+	return 0;
+}
+
+
 static void wpas_dpp_gas_resp_cb(void *ctx, const u8 *addr, u8 dialog_token,
 				 enum gas_query_result result,
 				 const struct wpabuf *adv_proto,
@@ -1253,6 +1346,8 @@ static void wpas_dpp_gas_resp_cb(void *ctx, const u8 *addr, u8 dialog_token,
 	}
 	if (auth->num_conf_obj)
 		wpas_dpp_post_process_config(wpa_s, auth);
+	if (wpas_dpp_handle_key_pkg(wpa_s, auth->conf_key_pkg) < 0)
+		goto fail;
 
 	status = DPP_STATUS_OK;
 #ifdef CONFIG_TESTING_OPTIONS
@@ -2049,6 +2144,7 @@ wpas_dpp_rx_pkex_commit_reveal_resp(struct wpa_supplicant *wpa_s, const u8 *src,
 	if (wpas_dpp_auth_init(wpa_s, cmd) < 0) {
 		wpa_printf(MSG_DEBUG,
 			   "DPP: Authentication initialization failed");
+		offchannel_send_action_done(wpa_s);
 		return;
 	}
 }
@@ -2522,6 +2618,8 @@ int wpas_dpp_pkex_remove(struct wpa_supplicant *wpa_s, const char *id)
 
 void wpas_dpp_stop(struct wpa_supplicant *wpa_s)
 {
+	if (wpa_s->dpp_auth || wpa_s->dpp_pkex)
+		offchannel_send_action_done(wpa_s);
 	dpp_auth_deinit(wpa_s->dpp_auth);
 	wpa_s->dpp_auth = NULL;
 	dpp_pkex_free(wpa_s->dpp_pkex);

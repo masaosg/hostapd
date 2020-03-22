@@ -227,6 +227,7 @@ static int wpa_supplicant_eapol_send(void *ctx, int type, const u8 *buf,
 }
 
 
+#ifdef CONFIG_WEP
 /**
  * wpa_eapol_set_wep_key - set WEP key for the driver
  * @ctx: Pointer to wpa_supplicant data (wpa_s)
@@ -250,8 +251,11 @@ static int wpa_eapol_set_wep_key(void *ctx, int unicast, int keyidx,
 	}
 	return wpa_drv_set_key(wpa_s, WPA_ALG_WEP,
 			       unicast ? wpa_s->bssid : NULL,
-			       keyidx, unicast, NULL, 0, key, keylen);
+			       keyidx, unicast, NULL, 0, key, keylen,
+			       unicast ? KEY_FLAG_PAIRWISE_RX_TX :
+			       KEY_FLAG_GROUP_RX_TX_DEFAULT);
 }
+#endif /* CONFIG_WEP */
 
 
 static void wpa_supplicant_aborted_cached(void *ctx)
@@ -348,8 +352,8 @@ static void wpa_supplicant_eapol_cb(struct eapol_sm *eapol,
 	wpa_hexdump_key(MSG_DEBUG, "RSN: Configure PMK for driver-based 4-way "
 			"handshake", pmk, pmk_len);
 
-	if (wpa_drv_set_key(wpa_s, WPA_ALG_PMK, NULL, 0, 0, NULL, 0, pmk,
-			    pmk_len)) {
+	if (wpa_drv_set_key(wpa_s, 0, NULL, 0, 0, NULL, 0, pmk,
+			    pmk_len, KEY_FLAG_PMK)) {
 		wpa_printf(MSG_DEBUG, "Failed to set PMK to the driver");
 	}
 
@@ -394,6 +398,13 @@ static int wpa_get_beacon_ie(struct wpa_supplicant *wpa_s)
 			curr = bss;
 			break;
 		}
+#ifdef CONFIG_OWE
+		if (ssid && (ssid->key_mgmt & WPA_KEY_MGMT_OWE) &&
+		    (bss->flags & WPA_BSS_OWE_TRANSITION)) {
+			curr = bss;
+			break;
+		}
+#endif /* CONFIG_OWE */
 	}
 
 	if (curr) {
@@ -484,6 +495,12 @@ static void _wpa_supplicant_deauthenticate(void *wpa_s, u16 reason_code)
 }
 
 
+static void _wpa_supplicant_reconnect(void *wpa_s)
+{
+	wpa_supplicant_reconnect(wpa_s);
+}
+
+
 static void * wpa_supplicant_get_network_ctx(void *wpa_s)
 {
 	return wpa_supplicant_get_ssid(wpa_s);
@@ -500,7 +517,8 @@ static int wpa_supplicant_get_bssid(void *ctx, u8 *bssid)
 static int wpa_supplicant_set_key(void *_wpa_s, enum wpa_alg alg,
 				  const u8 *addr, int key_idx, int set_tx,
 				  const u8 *seq, size_t seq_len,
-				  const u8 *key, size_t key_len)
+				  const u8 *key, size_t key_len,
+				  enum key_flag key_flag)
 {
 	struct wpa_supplicant *wpa_s = _wpa_s;
 	if (alg == WPA_ALG_TKIP && key_idx == 0 && key_len == 32) {
@@ -525,7 +543,7 @@ static int wpa_supplicant_set_key(void *_wpa_s, enum wpa_alg alg,
 	}
 #endif /* CONFIG_TESTING_OPTIONS */
 	return wpa_drv_set_key(wpa_s, alg, addr, key_idx, set_tx, seq, seq_len,
-			       key, key_len);
+			       key, key_len, key_flag);
 }
 
 
@@ -1055,6 +1073,20 @@ static void wpa_supplicant_eap_error_cb(void *ctx, int error_code)
 }
 
 
+static int wpa_supplicant_eap_auth_start_cb(void *ctx)
+{
+	struct wpa_supplicant *wpa_s = ctx;
+
+	if (!wpa_s->new_connection && wpa_s->deny_ptk0_rekey) {
+		wpa_msg(wpa_s, MSG_INFO,
+			"WPA: PTK0 rekey not allowed, reconnecting");
+		wpa_supplicant_reconnect(wpa_s);
+		return -1;
+	}
+	return 0;
+}
+
+
 static void wpa_supplicant_set_anon_id(void *ctx, const u8 *id, size_t len)
 {
 	struct wpa_supplicant *wpa_s = ctx;
@@ -1110,7 +1142,9 @@ int wpa_supplicant_init_eapol(struct wpa_supplicant *wpa_s)
 	ctx->preauth = 0;
 	ctx->eapol_done_cb = wpa_supplicant_notify_eapol_done;
 	ctx->eapol_send = wpa_supplicant_eapol_send;
+#ifdef CONFIG_WEP
 	ctx->set_wep_key = wpa_eapol_set_wep_key;
+#endif /* CONFIG_WEP */
 #ifndef CONFIG_NO_CONFIG_BLOBS
 	ctx->set_config_blob = wpa_supplicant_set_config_blob;
 	ctx->get_config_blob = wpa_supplicant_get_config_blob;
@@ -1133,6 +1167,7 @@ int wpa_supplicant_init_eapol(struct wpa_supplicant *wpa_s)
 	ctx->cert_in_cb = wpa_s->conf->cert_in_cb;
 	ctx->status_cb = wpa_supplicant_status_cb;
 	ctx->eap_error_cb = wpa_supplicant_eap_error_cb;
+	ctx->confirm_auth_cb = wpa_supplicant_eap_auth_start_cb;
 	ctx->set_anon_id = wpa_supplicant_set_anon_id;
 	ctx->cb_ctx = wpa_s;
 	wpa_s->eapol = eapol_sm_init(ctx);
@@ -1168,8 +1203,8 @@ static int wpa_supplicant_key_mgmt_set_pmk(void *ctx, const u8 *pmk,
 
 	if (wpa_s->conf->key_mgmt_offload &&
 	    (wpa_s->drv_flags & WPA_DRIVER_FLAGS_KEY_MGMT_OFFLOAD))
-		return wpa_drv_set_key(wpa_s, WPA_ALG_PMK, NULL, 0, 0,
-				       NULL, 0, pmk, pmk_len);
+		return wpa_drv_set_key(wpa_s, 0, NULL, 0, 0,
+				       NULL, 0, pmk, pmk_len, KEY_FLAG_PMK);
 	else
 		return 0;
 }
@@ -1219,6 +1254,7 @@ int wpa_supplicant_init_wpa(struct wpa_supplicant *wpa_s)
 	ctx->set_state = _wpa_supplicant_set_state;
 	ctx->get_state = _wpa_supplicant_get_state;
 	ctx->deauthenticate = _wpa_supplicant_deauthenticate;
+	ctx->reconnect = _wpa_supplicant_reconnect;
 	ctx->set_key = wpa_supplicant_set_key;
 	ctx->get_network_ctx = wpa_supplicant_get_network_ctx;
 	ctx->get_bssid = wpa_supplicant_get_bssid;
@@ -1283,6 +1319,8 @@ void wpa_supplicant_rsn_supp_set_config(struct wpa_supplicant *wpa_s,
 		conf.ssid = ssid->ssid;
 		conf.ssid_len = ssid->ssid_len;
 		conf.wpa_ptk_rekey = ssid->wpa_ptk_rekey;
+		conf.wpa_deny_ptk0_rekey = ssid->wpa_deny_ptk0_rekey;
+		conf.owe_ptk_workaround = ssid->owe_ptk_workaround;
 #ifdef CONFIG_P2P
 		if (ssid->p2p_group && wpa_s->current_bss &&
 		    !wpa_s->p2p_disable_ip_addr_req) {
@@ -1305,6 +1343,7 @@ void wpa_supplicant_rsn_supp_set_config(struct wpa_supplicant *wpa_s,
 			conf.fils_cache_id =
 				wpa_bss_get_fils_cache_id(wpa_s->current_bss);
 #endif /* CONFIG_FILS */
+		conf.beacon_prot = ssid->beacon_prot;
 	}
 	wpa_sm_set_config(wpa_s->wpa, ssid ? &conf : NULL);
 }

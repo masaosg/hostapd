@@ -1,7 +1,7 @@
 /*
  * DPP functionality shared between hostapd and wpa_supplicant
  * Copyright (c) 2017, Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation
+ * Copyright (c) 2018-2020, The Linux Foundation
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -115,7 +115,9 @@ struct dpp_bootstrap_info {
 	enum dpp_bootstrap_type type;
 	char *uri;
 	u8 mac_addr[ETH_ALEN];
+	char *chan;
 	char *info;
+	char *pk;
 	unsigned int freq[DPP_BOOTSTRAP_MAX_FREQ];
 	unsigned int num_freq;
 	int own;
@@ -187,6 +189,13 @@ struct dpp_configuration {
 	int psk_set;
 };
 
+struct dpp_asymmetric_key {
+	struct dpp_asymmetric_key *next;
+	EVP_PKEY *csign;
+	char *config_template;
+	char *connector_template;
+};
+
 #define DPP_MAX_CONF_OBJ 10
 
 struct dpp_authentication {
@@ -245,6 +254,7 @@ struct dpp_authentication {
 	struct dpp_configuration *conf2_ap;
 	struct dpp_configuration *conf_sta;
 	struct dpp_configuration *conf2_sta;
+	int provision_configurator;
 	struct dpp_configurator *conf;
 	struct dpp_config_obj {
 		char *connector; /* received signedConnector */
@@ -258,6 +268,7 @@ struct dpp_authentication {
 		struct wpabuf *c_sign_key;
 	} conf_obj[DPP_MAX_CONF_OBJ];
 	unsigned int num_conf_obj;
+	struct dpp_asymmetric_key *conf_key_pkg;
 	struct wpabuf *net_access_key;
 	os_time_t net_access_key_expiry;
 	int send_conn_status;
@@ -416,8 +427,8 @@ int dpp_parse_uri_chan_list(struct dpp_bootstrap_info *bi,
 			    const char *chan_list);
 int dpp_parse_uri_mac(struct dpp_bootstrap_info *bi, const char *mac);
 int dpp_parse_uri_info(struct dpp_bootstrap_info *bi, const char *info);
-char * dpp_keygen(struct dpp_bootstrap_info *bi, const char *curve,
-		  const u8 *privkey, size_t privkey_len);
+int dpp_nfc_update_bi(struct dpp_bootstrap_info *own_bi,
+		      struct dpp_bootstrap_info *peer_bi);
 struct hostapd_hw_modes;
 struct dpp_authentication * dpp_auth_init(void *msg_ctx,
 					  struct dpp_bootstrap_info *peer_bi,
@@ -556,6 +567,8 @@ int dpp_configurator_add(struct dpp_global *dpp, const char *cmd);
 int dpp_configurator_remove(struct dpp_global *dpp, const char *id);
 int dpp_configurator_get_key_id(struct dpp_global *dpp, unsigned int id,
 				char *buf, size_t buflen);
+int dpp_configurator_from_backup(struct dpp_global *dpp,
+				 struct dpp_asymmetric_key *key);
 int dpp_relay_add_controller(struct dpp_global *dpp,
 			     struct dpp_relay_config *config);
 int dpp_relay_rx_action(struct dpp_global *dpp, const u8 *src, const u8 *hdr,

@@ -233,9 +233,7 @@ void ap_free_sta(struct hostapd_data *hapd, struct sta_info *sta)
 	sta->assoc_ie_taxonomy = NULL;
 #endif /* CONFIG_TAXONOMY */
 
-#ifdef CONFIG_IEEE80211N
 	ht40_intolerant_remove(hapd->iface, sta);
-#endif /* CONFIG_IEEE80211N */
 
 #ifdef CONFIG_P2P
 	if (sta->no_p2p_set) {
@@ -246,10 +244,10 @@ void ap_free_sta(struct hostapd_data *hapd, struct sta_info *sta)
 	}
 #endif /* CONFIG_P2P */
 
-#if defined(NEED_AP_MLME) && defined(CONFIG_IEEE80211N)
+#ifdef NEED_AP_MLME
 	if (hostapd_ht_operation_update(hapd->iface) > 0)
 		set_beacon++;
-#endif /* NEED_AP_MLME && CONFIG_IEEE80211N */
+#endif /* NEED_AP_MLME */
 
 #ifdef CONFIG_MESH
 	if (hapd->mesh_sta_free_cb)
@@ -372,6 +370,10 @@ void ap_free_sta(struct hostapd_data *hapd, struct sta_info *sta)
 #endif /* CONFIG_WNM_AP */
 
 	os_free(sta->ifname_wds);
+
+#ifdef CONFIG_TESTING_OPTIONS
+	os_free(sta->sae_postponed_commit);
+#endif /* CONFIG_TESTING_OPTIONS */
 
 	os_free(sta);
 }
@@ -1025,6 +1027,13 @@ int ap_sta_bind_vlan(struct hostapd_data *hapd, struct sta_info *sta)
 	int ret;
 	int old_vlanid = sta->vlan_id_bound;
 
+	if ((sta->flags & WLAN_STA_WDS) && sta->vlan_id == 0) {
+		wpa_printf(MSG_DEBUG,
+			   "Do not override WDS VLAN assignment for STA "
+			   MACSTR, MAC2STR(sta->addr));
+		return 0;
+	}
+
 	iface = hapd->conf->iface;
 	if (hapd->conf->ssid.vlan[0])
 		iface = hapd->conf->ssid.vlan;
@@ -1046,7 +1055,8 @@ int ap_sta_bind_vlan(struct hostapd_data *hapd, struct sta_info *sta)
 	if (sta->vlan_id == old_vlanid)
 		goto skip_counting;
 
-	if (sta->vlan_id > 0 && vlan == NULL) {
+	if (sta->vlan_id > 0 && !vlan &&
+	    !(hapd->iface->drv_flags & WPA_DRIVER_FLAGS_VLAN_OFFLOAD)) {
 		hostapd_logger(hapd, sta->addr, HOSTAPD_MODULE_IEEE80211,
 			       HOSTAPD_LEVEL_DEBUG, "could not find VLAN for "
 			       "binding station to (vlan_id=%d)",

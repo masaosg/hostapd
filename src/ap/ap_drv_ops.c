@@ -680,15 +680,29 @@ int hostapd_driver_set_noa(struct hostapd_data *hapd, u8 count, int start,
 
 int hostapd_drv_set_key(const char *ifname, struct hostapd_data *hapd,
 			enum wpa_alg alg, const u8 *addr,
-			int key_idx, int set_tx,
+			int key_idx, int vlan_id, int set_tx,
 			const u8 *seq, size_t seq_len,
-			const u8 *key, size_t key_len)
+			const u8 *key, size_t key_len, enum key_flag key_flag)
 {
+	struct wpa_driver_set_key_params params;
+
 	if (hapd->driver == NULL || hapd->driver->set_key == NULL)
 		return 0;
-	return hapd->driver->set_key(ifname, hapd->drv_priv, alg, addr,
-				     key_idx, set_tx, seq, seq_len, key,
-				     key_len);
+
+	os_memset(&params, 0, sizeof(params));
+	params.ifname = ifname;
+	params.alg = alg;
+	params.addr = addr;
+	params.key_idx = key_idx;
+	params.set_tx = set_tx;
+	params.seq = seq;
+	params.seq_len = seq_len;
+	params.key = key;
+	params.key_len = key_len;
+	params.vlan_id = vlan_id;
+	params.key_flag = key_flag;
+
+	return hapd->driver->set_key(hapd->drv_priv, &params);
 }
 
 
@@ -700,7 +714,7 @@ int hostapd_drv_send_mlme(struct hostapd_data *hapd,
 	if (!hapd->driver || !hapd->driver->send_mlme || !hapd->drv_priv)
 		return 0;
 	return hapd->driver->send_mlme(hapd->drv_priv, msg, len, noack, 0,
-				       csa_offs, csa_offs_len, no_encrypt);
+				       csa_offs, csa_offs_len, no_encrypt, 0);
 }
 
 

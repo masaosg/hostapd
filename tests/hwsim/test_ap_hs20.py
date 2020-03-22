@@ -798,6 +798,7 @@ def eap_test(dev, ap, eap_params, method, user, release=0):
         params['hs20_release'] = str(release)
     hapd = hostapd.add_ap(ap, params)
 
+    dev.flush_scan_cache()
     dev.hs20_enable()
     dev.add_cred_values({'realm': "example.com",
                          'ca_cert': "auth_serv/ca.pem",
@@ -1272,6 +1273,7 @@ def test_ap_hs20_connect_no_full_match(dev, apdev):
     params['anqp_3gpp_cell_net'] = "555,444"
     hostapd.add_ap(apdev[0], params)
 
+    dev[0].flush_scan_cache()
     dev[0].hs20_enable()
 
     vals = {'username': "user",
@@ -2660,8 +2662,9 @@ def test_ap_hs20_osen(dev, apdev):
 
     dev[1].connect("osen", key_mgmt="NONE", scan_freq="2412",
                    wait_connect=False)
-    dev[2].connect("osen", key_mgmt="NONE", wep_key0='"hello"',
-                   scan_freq="2412", wait_connect=False)
+    if "WEP40" in dev[2].get_capability("group"):
+        dev[2].connect("osen", key_mgmt="NONE", wep_key0='"hello"',
+                       scan_freq="2412", wait_connect=False)
     dev[0].flush_scan_cache()
     dev[0].connect("osen", proto="OSEN", key_mgmt="OSEN", pairwise="CCMP",
                    group="GTK_NOT_USED CCMP",

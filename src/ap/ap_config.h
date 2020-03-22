@@ -67,6 +67,7 @@ struct hostapd_radius_servers;
 struct ft_remote_r0kh;
 struct ft_remote_r1kh;
 
+#ifdef CONFIG_WEP
 #define NUM_WEP_KEYS 4
 struct hostapd_wep_keys {
 	u8 idx;
@@ -75,10 +76,13 @@ struct hostapd_wep_keys {
 	int keys_set;
 	size_t default_len; /* key length used for dynamic key generation */
 };
+#endif /* CONFIG_WEP */
 
 typedef enum hostap_security_policy {
 	SECURITY_PLAINTEXT = 0,
+#ifdef CONFIG_WEP
 	SECURITY_STATIC_WEP = 1,
+#endif /* CONFIG_WEP */
 	SECURITY_IEEE_802_1X = 2,
 	SECURITY_WPA_PSK = 3,
 	SECURITY_WPA = 4,
@@ -102,7 +106,9 @@ struct hostapd_ssid {
 	char *wpa_psk_file;
 	struct sae_pt *pt;
 
+#ifdef CONFIG_WEP
 	struct hostapd_wep_keys wep;
+#endif /* CONFIG_WEP */
 
 #define DYNAMIC_VLAN_DISABLED 0
 #define DYNAMIC_VLAN_OPTIONAL 1
@@ -152,6 +158,7 @@ struct hostapd_wpa_psk {
 	struct hostapd_wpa_psk *next;
 	int group;
 	char keyid[KEYID_LEN];
+	int wps;
 	u8 psk[PMK_LEN];
 	u8 addr[ETH_ALEN];
 	u8 p2p_dev_addr[ETH_ALEN];
@@ -320,10 +327,12 @@ struct hostapd_bss_config {
 	size_t eap_req_id_text_len;
 	int eapol_key_index_workaround;
 
+#ifdef CONFIG_WEP
 	size_t default_wep_key_len;
 	int individual_wep_key_len;
 	int wep_rekeying_period;
 	int broadcast_key_idx_min, broadcast_key_idx_max;
+#endif /* CONFIG_WEP */
 	int eap_reauth_period;
 	int erp_send_reauth_start;
 	char *erp_domain;
@@ -348,6 +357,7 @@ struct hostapd_bss_config {
 	int wpa_key_mgmt;
 	enum mfp_options ieee80211w;
 	int group_mgmt_cipher;
+	int beacon_prot;
 	/* dot11AssociationSAQueryMaximumTimeout (in TUs) */
 	unsigned int assoc_sa_query_max_timeout;
 	/* dot11AssociationSAQueryRetryTimeout (in TUs) */
@@ -368,6 +378,7 @@ struct hostapd_bss_config {
 	int wpa_strict_rekey;
 	int wpa_gmk_rekey;
 	int wpa_ptk_rekey;
+	enum ptk0_rekey_handling wpa_deny_ptk0_rekey;
 	u32 wpa_group_update_count;
 	u32 wpa_pairwise_update_count;
 	int wpa_disable_eapol_key_retries;
@@ -666,9 +677,13 @@ struct hostapd_bss_config {
 	struct wpabuf *own_ie_override;
 	int sae_reflection_attack;
 	struct wpabuf *sae_commit_override;
+	struct wpabuf *rsne_override_eapol;
 	struct wpabuf *rsnxe_override_eapol;
+	struct wpabuf *rsne_override_ft;
+	struct wpabuf *rsnxe_override_ft;
 	struct wpabuf *gtk_rsc_override;
 	struct wpabuf *igtk_rsc_override;
+	int no_beacon_rsnxe;
 #endif /* CONFIG_TESTING_OPTIONS */
 
 #define MESH_ENABLED BIT(0)
@@ -733,6 +748,7 @@ struct hostapd_bss_config {
 	size_t owe_transition_ssid_len;
 	char owe_transition_ifname[IFNAMSIZ + 1];
 	int *owe_groups;
+	int owe_ptk_workaround;
 #endif /* CONFIG_OWE */
 
 	int coloc_intf_reporting;
@@ -852,6 +868,8 @@ struct he_phy_capabilities_info {
  */
 struct he_operation {
 	u8 he_bss_color;
+	u8 he_bss_color_disabled;
+	u8 he_bss_color_partial;
 	u8 he_default_pe_duration;
 	u8 he_twt_required;
 	u16 he_rts_threshold;

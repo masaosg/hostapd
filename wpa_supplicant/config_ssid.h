@@ -300,6 +300,7 @@ struct wpa_ssid {
 	struct eap_peer_config eap;
 #endif /* IEEE8021X_EAPOL */
 
+#ifdef CONFIG_WEP
 #define NUM_WEP_KEYS 4
 #define MAX_WEP_KEY_LEN 16
 	/**
@@ -316,6 +317,7 @@ struct wpa_ssid {
 	 * wep_tx_keyidx - Default key index for TX frames using WEP
 	 */
 	int wep_tx_keyidx;
+#endif /* CONFIG_WEP */
 
 	/**
 	 * proactive_key_caching - Enable proactive key caching
@@ -552,6 +554,19 @@ struct wpa_ssid {
 	 * attacks against TKIP deficiencies.
 	 */
 	int wpa_ptk_rekey;
+
+	/** wpa_deny_ptk0_rekey - Control PTK0 rekeying
+	 *
+	 * Rekeying a pairwise key using only keyid 0 (PTK0 rekey) has many
+	 * broken implementations and should be avoided when using or
+	 * interacting with one.
+	 *
+	 * 0 = always rekey when configured/instructed
+	 * 1 = only rekey when the local driver is explicitly indicating it can
+	 *	perform this operation without issues
+	 * 2 = never allow PTK0 rekeys
+	 */
+	enum ptk0_rekey_handling wpa_deny_ptk0_rekey;
 
 	/**
 	 * group_rekey - Group rekeying time in seconds
@@ -1009,6 +1024,19 @@ struct wpa_ssid {
 	int owe_only;
 
 	/**
+	 * owe_ptk_workaround - OWE PTK derivation workaround
+	 *
+	 * Initial OWE implementation used SHA256 when deriving the PTK for all
+	 * OWE groups. This was supposed to change to SHA384 for group 20 and
+	 * SHA512 for group 21. This parameter can be used to enable older
+	 * behavior mainly for testing purposes. There is no impact to group 19
+	 * behavior, but if enabled, this will make group 20 and 21 cases use
+	 * SHA256-based PTK derivation which will not work with the updated
+	 * OWE implementation on the AP side.
+	 */
+	int owe_ptk_workaround;
+
+	/**
 	 * owe_transition_bss_select_count - OWE transition BSS select count
 	 *
 	 * This is an internally used variable (i.e., not used in external
@@ -1034,6 +1062,14 @@ struct wpa_ssid {
 	 * FT initial mobility domain association.
 	 */
 	int ft_eap_pmksa_caching;
+
+	/**
+	 * beacon_prot - Whether Beacon protection is enabled
+	 *
+	 * This depends on management frame protection (ieee80211w) being
+	 * enabled.
+	 */
+	int beacon_prot;
 };
 
 #endif /* CONFIG_SSID_H */

@@ -281,10 +281,6 @@ L_CFLAGS += -DCONFIG_WNM -DCONFIG_WNM_AP
 OBJS += src/ap/wnm_ap.c
 endif
 
-ifdef CONFIG_IEEE80211N
-L_CFLAGS += -DCONFIG_IEEE80211N
-endif
-
 ifdef CONFIG_IEEE80211AC
 L_CFLAGS += -DCONFIG_IEEE80211AC
 endif
@@ -311,6 +307,10 @@ endif
 ifndef CONFIG_NO_CTRL_IFACE
 OBJS += src/fst/fst_ctrl_iface.c
 endif
+endif
+
+ifdef CONFIG_WEP
+L_CFLAGS += -DCONFIG_WEP
 endif
 
 
@@ -544,6 +544,7 @@ NEED_ECC=y
 NEED_JSON=y
 NEED_GAS=y
 NEED_BASE64=y
+NEED_ASN1=y
 ifdef CONFIG_DPP2
 L_CFLAGS += -DCONFIG_DPP2
 endif
@@ -681,12 +682,12 @@ OBJS += src/tls/tlsv1_cred.c
 OBJS += src/tls/tlsv1_server.c
 OBJS += src/tls/tlsv1_server_write.c
 OBJS += src/tls/tlsv1_server_read.c
-OBJS += src/tls/asn1.c
 OBJS += src/tls/rsa.c
 OBJS += src/tls/x509v3.c
 OBJS += src/tls/pkcs1.c
 OBJS += src/tls/pkcs5.c
 OBJS += src/tls/pkcs8.c
+NEED_ASN1=y
 NEED_BASE64=y
 NEED_TLS_PRF=y
 ifdef CONFIG_TLSV12
@@ -936,6 +937,10 @@ L_CFLAGS += -DCONFIG_INTERNAL_SHA512
 OBJS += src/crypto/sha512-internal.c
 endif
 
+ifdef NEED_ASN1
+OBJS += src/tls/asn1.c
+endif
+
 ifdef NEED_DH_GROUPS
 OBJS += src/crypto/dh_groups.c
 endif
@@ -994,9 +999,7 @@ OBJS += src/ap/hw_features.c
 OBJS += src/ap/dfs.c
 L_CFLAGS += -DNEED_AP_MLME
 endif
-ifdef CONFIG_IEEE80211N
 OBJS += src/ap/ieee802_11_ht.c
-endif
 
 ifdef CONFIG_IEEE80211AC
 OBJS += src/ap/ieee802_11_vht.c

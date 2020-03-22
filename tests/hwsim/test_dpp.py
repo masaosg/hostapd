@@ -240,6 +240,42 @@ def test_dpp_qr_code_auth_unicast_ap_enrollee(dev, apdev):
     """DPP QR Code and authentication exchange (AP enrollee)"""
     run_dpp_qr_code_auth_unicast(dev, apdev, None, netrole="ap")
 
+def run_dpp_configurator_enrollee(dev, apdev, conf_curve=None):
+    run_dpp_qr_code_auth_unicast(dev, apdev, None, netrole="configurator",
+                                 configurator=True, conf_curve=conf_curve,
+                                 conf="configurator")
+    ev = dev[0].wait_event(["DPP-CONFIGURATOR-ID"], timeout=2)
+    if ev is None:
+        raise Exception("No Configurator instance added")
+
+def test_dpp_configurator_enrollee(dev, apdev):
+    """DPP Configurator enrolling"""
+    run_dpp_configurator_enrollee(dev, apdev)
+
+def test_dpp_configurator_enrollee_prime256v1(dev, apdev):
+    """DPP Configurator enrolling (prime256v1)"""
+    run_dpp_configurator_enrollee(dev, apdev, conf_curve="prime256v1")
+
+def test_dpp_configurator_enrollee_secp384r1(dev, apdev):
+    """DPP Configurator enrolling (secp384r1)"""
+    run_dpp_configurator_enrollee(dev, apdev, conf_curve="secp384r1")
+
+def test_dpp_configurator_enrollee_secp521r1(dev, apdev):
+    """DPP Configurator enrolling (secp521r1)"""
+    run_dpp_configurator_enrollee(dev, apdev, conf_curve="secp521r1")
+
+def test_dpp_configurator_enrollee_brainpoolP256r1(dev, apdev):
+    """DPP Configurator enrolling (brainpoolP256r1)"""
+    run_dpp_configurator_enrollee(dev, apdev, conf_curve="brainpoolP256r1")
+
+def test_dpp_configurator_enrollee_brainpoolP384r1(dev, apdev):
+    """DPP Configurator enrolling (brainpoolP384r1)"""
+    run_dpp_configurator_enrollee(dev, apdev, conf_curve="brainpoolP384r1")
+
+def test_dpp_configurator_enrollee_brainpoolP512r1(dev, apdev):
+    """DPP Configurator enrolling (brainpoolP512r1)"""
+    run_dpp_configurator_enrollee(dev, apdev, conf_curve="brainpoolP512r1")
+
 def test_dpp_qr_code_curve_prime256v1(dev, apdev):
     """DPP QR Code and curve prime256v1"""
     run_dpp_qr_code_auth_unicast(dev, apdev, "prime256v1")
@@ -271,7 +307,8 @@ def test_dpp_qr_code_set_key(dev, apdev):
 def run_dpp_qr_code_auth_unicast(dev, apdev, curve, netrole=None, key=None,
                                  require_conf_success=False, init_extra=None,
                                  require_conf_failure=False,
-                                 configurator=False, conf_curve=None):
+                                 configurator=False, conf_curve=None,
+                                 conf=None):
     check_dpp_capab(dev[0], curve and "brainpool" in curve)
     check_dpp_capab(dev[1], curve and "brainpool" in curve)
     if configurator:
@@ -285,7 +322,8 @@ def run_dpp_qr_code_auth_unicast(dev, apdev, curve, netrole=None, key=None,
 
     logger.info("dev1 scans QR Code and initiates DPP Authentication")
     dev[0].dpp_listen(2412, netrole=netrole)
-    dev[1].dpp_auth_init(uri=uri0, extra=init_extra, configurator=conf_id)
+    dev[1].dpp_auth_init(uri=uri0, extra=init_extra, configurator=conf_id,
+                         conf=conf)
     wait_auth_success(dev[0], dev[1], configurator=dev[1], enrollee=dev[0],
                       allow_enrollee_failure=True,
                       allow_configurator_failure=not require_conf_success,
@@ -1713,14 +1751,14 @@ def test_dpp_auto_connect_1(dev, apdev):
     try:
         run_dpp_auto_connect(dev, apdev, 1)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_auto_connect_2(dev, apdev):
     """DPP and auto connect (2)"""
     try:
         run_dpp_auto_connect(dev, apdev, 2)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_auto_connect_2_connect_cmd(dev, apdev):
     """DPP and auto connect (2) using connect_cmd"""
@@ -1730,7 +1768,7 @@ def test_dpp_auto_connect_2_connect_cmd(dev, apdev):
     try:
         run_dpp_auto_connect(dev_new, apdev, 2)
     finally:
-        wpas.set("dpp_config_processing", "0")
+        wpas.set("dpp_config_processing", "0", allow_fail=True)
 
 def run_dpp_auto_connect(dev, apdev, processing):
     check_dpp_capab(dev[0])
@@ -1777,28 +1815,28 @@ def test_dpp_auto_connect_legacy(dev, apdev):
     try:
         run_dpp_auto_connect_legacy(dev, apdev)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_auto_connect_legacy_ssid_charset(dev, apdev):
     """DPP and auto connect (legacy, ssid_charset)"""
     try:
         run_dpp_auto_connect_legacy(dev, apdev, ssid_charset=12345)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_auto_connect_legacy_sae_1(dev, apdev):
     """DPP and auto connect (legacy SAE)"""
     try:
         run_dpp_auto_connect_legacy(dev, apdev, conf='sta-sae', psk_sae=True)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_auto_connect_legacy_sae_2(dev, apdev):
     """DPP and auto connect (legacy SAE)"""
     try:
         run_dpp_auto_connect_legacy(dev, apdev, conf='sta-sae', sae_only=True)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_auto_connect_legacy_psk_sae_1(dev, apdev):
     """DPP and auto connect (legacy PSK+SAE)"""
@@ -1806,7 +1844,7 @@ def test_dpp_auto_connect_legacy_psk_sae_1(dev, apdev):
         run_dpp_auto_connect_legacy(dev, apdev, conf='sta-psk-sae',
                                     psk_sae=True)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_auto_connect_legacy_psk_sae_2(dev, apdev):
     """DPP and auto connect (legacy PSK+SAE)"""
@@ -1814,14 +1852,14 @@ def test_dpp_auto_connect_legacy_psk_sae_2(dev, apdev):
         run_dpp_auto_connect_legacy(dev, apdev, conf='sta-psk-sae',
                                     sae_only=True)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_auto_connect_legacy_psk_sae_3(dev, apdev):
     """DPP and auto connect (legacy PSK+SAE)"""
     try:
         run_dpp_auto_connect_legacy(dev, apdev, conf='sta-psk-sae')
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def run_dpp_auto_connect_legacy(dev, apdev, conf='sta-psk',
                                 ssid_charset=None,
@@ -1870,7 +1908,7 @@ def test_dpp_auto_connect_legacy_pmf_required(dev, apdev):
     try:
         run_dpp_auto_connect_legacy_pmf_required(dev, apdev)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def run_dpp_auto_connect_legacy_pmf_required(dev, apdev):
     check_dpp_capab(dev[0])
@@ -1911,6 +1949,30 @@ def run_dpp_qr_code_auth_responder_configurator(dev, apdev, extra):
     uri0 = dev[0].request("DPP_BOOTSTRAP_GET_URI %d" % id0)
     dev[0].set("dpp_configurator_params",
                " conf=sta-dpp configurator=%d%s" % (conf_id, extra))
+    dev[0].dpp_listen(2412, role="configurator")
+    dev[1].dpp_auth_init(uri=uri0, role="enrollee")
+    wait_auth_success(dev[0], dev[1], configurator=dev[0], enrollee=dev[1],
+                      stop_responder=True)
+
+def test_dpp_qr_code_auth_enrollee_init_netrole(dev, apdev):
+    """DPP QR Code and enrollee initiating with netrole specified"""
+    check_dpp_capab(dev[0])
+    check_dpp_capab(dev[1])
+    conf_id = dev[0].dpp_configurator_add()
+    id0 = dev[0].dpp_bootstrap_gen(chan="81/1", mac=True)
+    uri0 = dev[0].request("DPP_BOOTSTRAP_GET_URI %d" % id0)
+    dev[0].set("dpp_configurator_params",
+               " conf=configurator configurator=%d" % conf_id)
+    dev[0].dpp_listen(2412, role="configurator")
+    dev[1].dpp_auth_init(uri=uri0, role="enrollee", netrole="configurator")
+    wait_auth_success(dev[0], dev[1], configurator=dev[0], enrollee=dev[1],
+                      stop_responder=True)
+    dev[0].dump_monitor()
+    dev[1].dump_monitor()
+
+    # verify that netrole resets back to sta, if not explicitly stated
+    dev[0].set("dpp_configurator_params",
+               "conf=sta-dpp configurator=%d" % conf_id)
     dev[0].dpp_listen(2412, role="configurator")
     dev[1].dpp_auth_init(uri=uri0, role="enrollee")
     wait_auth_success(dev[0], dev[1], configurator=dev[0], enrollee=dev[1],
@@ -2408,21 +2470,21 @@ def test_dpp_own_config(dev, apdev):
     try:
         run_dpp_own_config(dev, apdev)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_own_config_group_id(dev, apdev):
     """DPP configurator signing own connector"""
     try:
         run_dpp_own_config(dev, apdev, extra=" group_id=test-group")
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_own_config_curve_mismatch(dev, apdev):
     """DPP configurator signing own connector using mismatching curve"""
     try:
         run_dpp_own_config(dev, apdev, own_curve="BP-384", expect_failure=True)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def run_dpp_own_config(dev, apdev, own_curve=None, expect_failure=False,
                        extra=None):
@@ -2463,21 +2525,21 @@ def test_dpp_own_config_ap(dev, apdev):
     try:
         run_dpp_own_config_ap(dev, apdev)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_own_config_ap_group_id(dev, apdev):
     """DPP configurator (AP) signing own connector (group_id)"""
     try:
         run_dpp_own_config_ap(dev, apdev, extra=" group_id=test-group")
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_own_config_ap_reconf(dev, apdev):
     """DPP configurator (AP) signing own connector and configurator reconf"""
     try:
         run_dpp_own_config_ap(dev, apdev)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def run_dpp_own_config_ap(dev, apdev, reconf_configurator=False, extra=None):
     check_dpp_capab(dev[0])
@@ -2517,10 +2579,10 @@ def test_dpp_intro_mismatch(dev, apdev):
         check_dpp_capab(wpas)
         run_dpp_intro_mismatch(dev, apdev, wpas)
     finally:
-        dev[0].set("dpp_config_processing", "0")
-        dev[2].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
+        dev[2].set("dpp_config_processing", "0", allow_fail=True)
         if wpas:
-            wpas.set("dpp_config_processing", "0")
+            wpas.set("dpp_config_processing", "0", allow_fail=True)
 
 def run_dpp_intro_mismatch(dev, apdev, wpas):
     check_dpp_capab(dev[0])
@@ -3466,8 +3528,8 @@ def test_dpp_pkex_alloc_fail(dev, apdev):
              (1, "dpp_alloc_msg;dpp_auth_build_conf"),
              (1, "dpp_bootstrap_key_hash"),
              (1, "dpp_auth_init"),
+             (1, "dpp_alloc_auth"),
              (1, "=dpp_auth_resp_rx"),
-             (2, "=dpp_auth_resp_rx"),
              (1, "dpp_build_conf_start"),
              (1, "dpp_build_conf_obj_dpp"),
              (2, "dpp_build_conf_obj_dpp"),
@@ -3517,8 +3579,8 @@ def test_dpp_pkex_alloc_fail(dev, apdev):
              (1, "dpp_alloc_msg;dpp_pkex_build_commit_reveal_resp"),
              (1, "dpp_alloc_msg;dpp_auth_build_resp"),
              (1, "dpp_get_pubkey_point;dpp_auth_build_resp_ok"),
+             (1, "dpp_alloc_auth"),
              (1, "=dpp_auth_req_rx"),
-             (2, "=dpp_auth_req_rx"),
              (1, "=dpp_auth_conf_rx"),
              (1, "json_parse;dpp_parse_jws_prot_hdr"),
              (1, "json_get_member_base64url;dpp_parse_jws_prot_hdr"),
@@ -3894,7 +3956,7 @@ def test_dpp_bootstrap_key_autogen_issues(dev, apdev):
     dev[0].dpp_listen(2412)
     with alloc_fail(dev[1], 1, "dpp_autogen_bootstrap_key"):
         dev[1].dpp_auth_init(peer=id1, expect_fail=True)
-    with alloc_fail(dev[1], 2, "=dpp_autogen_bootstrap_key"):
+    with alloc_fail(dev[1], 1, "dpp_gen_uri;dpp_autogen_bootstrap_key"):
         dev[1].dpp_auth_init(peer=id1, expect_fail=True)
     with fail_test(dev[1], 1, "dpp_keygen;dpp_autogen_bootstrap_key"):
         dev[1].dpp_auth_init(peer=id1, expect_fail=True)
@@ -4001,7 +4063,7 @@ def test_dpp_peer_intro_failures(dev, apdev):
     try:
         run_dpp_peer_intro_failures(dev, apdev)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def run_dpp_peer_intro_failures(dev, apdev):
     check_dpp_capab(dev[0])
@@ -4198,7 +4260,7 @@ def run_dpp_bootstrap_gen_failures(dev):
         if "FAIL" not in dev.request("DPP_BOOTSTRAP_GEN type=qrcode"):
             raise Exception("Command accepted unexpectedly")
 
-    with alloc_fail(dev, 2, "=" + func):
+    with alloc_fail(dev, 1, "dpp_gen_uri;dpp_bootstrap_gen"):
         if "FAIL" not in dev.request("DPP_BOOTSTRAP_GEN type=qrcode"):
             raise Exception("Command accepted unexpectedly")
 
@@ -4229,7 +4291,7 @@ def test_dpp_network_addition_failure(dev, apdev):
     try:
         run_dpp_network_addition_failure(dev, apdev)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def run_dpp_network_addition_failure(dev, apdev):
     check_dpp_capab(dev[0])
@@ -4297,6 +4359,7 @@ def test_dpp_conf_file_update(dev, apdev, params):
         f.write("update_config=1\n")
     wpas = WpaSupplicant(global_iface='/tmp/wpas-wlan5')
     wpas.interface_add("wlan5", config=config)
+    check_dpp_capab(wpas)
     wpas.set("dpp_config_processing", "1")
     run_dpp_qr_code_auth_unicast([wpas, dev[1]], apdev, None,
                                  init_extra="conf=sta-dpp",
@@ -4358,6 +4421,39 @@ def test_dpp_duplicated_auth_resp(dev, apdev):
 
     wait_conf_completion(dev[1], dev[0])
 
+def test_dpp_duplicated_auth_conf(dev, apdev):
+    """DPP and duplicated Authentication Confirmation"""
+    check_dpp_capab(dev[0])
+    check_dpp_capab(dev[1])
+    id0 = dev[0].dpp_bootstrap_gen(chan="81/1", mac=True)
+    uri0 = dev[0].request("DPP_BOOTSTRAP_GET_URI %d" % id0)
+    dev[0].set("ext_mgmt_frame_handling", "1")
+    dev[1].set("ext_mgmt_frame_handling", "1")
+    dev[0].dpp_listen(2412)
+    dev[1].dpp_auth_init(uri=uri0)
+
+    # DPP Authentication Request
+    rx_process_frame(dev[0])
+
+    # DPP Authentication Response
+    rx_process_frame(dev[1])
+
+    # DPP Authentication Confirmation
+    msg = rx_process_frame(dev[0])
+    # Duplicated frame
+    if "OK" not in dev[0].request("MGMT_RX_PROCESS freq={} datarate={} ssi_signal={} frame={}".format(msg['freq'], msg['datarate'], msg['ssi_signal'], binascii.hexlify(msg['frame']).decode())):
+        raise Exception("MGMT_RX_PROCESS failed")
+
+    wait_auth_success(dev[0], dev[1])
+
+    # DPP Configuration Request
+    rx_process_frame(dev[1])
+
+    # DPP Configuration Response
+    rx_process_frame(dev[0])
+
+    wait_conf_completion(dev[1], dev[0])
+
 def test_dpp_enrollee_reject_config(dev, apdev):
     """DPP and Enrollee rejecting Config Object"""
     check_dpp_capab(dev[0])
@@ -4392,7 +4488,7 @@ def test_dpp_legacy_and_dpp_akm(dev, apdev):
     try:
         run_dpp_legacy_and_dpp_akm(dev, apdev)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def run_dpp_legacy_and_dpp_akm(dev, apdev):
     check_dpp_capab(dev[0], min_ver=2)
@@ -4472,7 +4568,7 @@ def test_dpp_controller_relay(dev, apdev, params):
     try:
         run_dpp_controller_relay(dev, apdev, params)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
         dev[1].request("DPP_CONTROLLER_STOP")
 
 def run_dpp_controller_relay(dev, apdev, params):
@@ -4700,28 +4796,28 @@ def test_dpp_conn_status_success(dev, apdev):
     try:
         run_dpp_conn_status(dev, apdev)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_conn_status_wrong_passphrase(dev, apdev):
     """DPP connection status - wrong passphrase"""
     try:
         run_dpp_conn_status(dev, apdev, result=2)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_conn_status_no_ap(dev, apdev):
     """DPP connection status - no AP"""
     try:
         run_dpp_conn_status(dev, apdev, result=10)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_conn_status_connector_mismatch(dev, apdev):
     """DPP connection status - invalid Connector"""
     try:
         run_dpp_conn_status(dev, apdev, result=8)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def test_dpp_conn_status_assoc_reject(dev, apdev):
     """DPP connection status - association rejection"""
@@ -4729,7 +4825,7 @@ def test_dpp_conn_status_assoc_reject(dev, apdev):
         dev[0].request("TEST_ASSOC_IE 30020000")
         run_dpp_conn_status(dev, apdev, assoc_reject=True)
     finally:
-        dev[0].set("dpp_config_processing", "0")
+        dev[0].set("dpp_config_processing", "0", allow_fail=True)
 
 def run_dpp_conn_status(dev, apdev, result=0, assoc_reject=False):
     check_dpp_capab(dev[0], min_ver=2)
@@ -4841,6 +4937,7 @@ def test_dpp_config_save3(dev, apdev, params):
     run_dpp_config_save(dev, apdev, config, "\\u0001*\\u00c2\\u00bc\\u00c3\\u009e\\u00c3\\u00bf", '012ac2bcc39ec3bf')
 
 def run_dpp_config_save(dev, apdev, config, conf_ssid, exp_ssid):
+    check_dpp_capab(dev[1])
     with open(config, "w") as f:
         f.write("update_config=1\n" +
                 "dpp_config_processing=1\n")
@@ -4879,6 +4976,54 @@ def test_dpp_nfc_uri(dev, apdev):
     conf_id = dev[1].dpp_configurator_add()
     dev[1].dpp_auth_init(nfc_uri=uri, configurator=conf_id, conf="sta-dpp")
     wait_auth_success(dev[0], dev[1], configurator=dev[1], enrollee=dev[0])
+
+def test_dpp_nfc_negotiated_handover(dev, apdev):
+    """DPP bootstrapping via NFC negotiated handover"""
+    run_dpp_nfc_negotiated_handover(dev, apdev)
+
+def test_dpp_nfc_negotiated_handover_diff_curve(dev, apdev):
+    """DPP bootstrapping via NFC negotiated handover (different curve)"""
+    run_dpp_nfc_negotiated_handover(dev, apdev, curve0="prime256v1",
+                                    curve1="secp384r1")
+
+def run_dpp_nfc_negotiated_handover(dev, apdev, curve0=None, curve1=None):
+    check_dpp_capab(dev[0])
+    check_dpp_capab(dev[1])
+
+    id0 = dev[0].dpp_bootstrap_gen(type="nfc-uri", chan="81/6,11", mac=True,
+                                   curve=curve0)
+    uri0 = dev[0].request("DPP_BOOTSTRAP_GET_URI %d" % id0)
+    logger.info("Generated URI[0]: " + uri0)
+    id1 = dev[1].dpp_bootstrap_gen(type="nfc-uri", chan="81/1,6,11", mac=True,
+                                   curve=curve1)
+    uri1 = dev[1].request("DPP_BOOTSTRAP_GET_URI %d" % id1)
+    logger.info("Generated URI[1]: " + uri1)
+
+    # dev[0] acting as NFC Handover Requestor
+    # dev[1] acting as NFC Handover Selector
+    res = dev[1].request("DPP_NFC_HANDOVER_REQ own=%d uri=%s" % (id1, uri0))
+    if "FAIL" in res:
+        raise Exception("Failed to process NFC Handover Request")
+    info = dev[1].request("DPP_BOOTSTRAP_INFO %d" % id1)
+    logger.info("Updated local bootstrapping info:\n" + info)
+    freq = None
+    for line in info.splitlines():
+        if line.startswith("use_freq="):
+            freq = int(line.split('=')[1])
+    if freq is None:
+        raise Exception("Selected channel not indicated")
+    uri1 = dev[1].request("DPP_BOOTSTRAP_GET_URI %d" % id1)
+    logger.info("Updated URI[1]: " + uri1)
+    dev[1].dpp_listen(freq)
+    res = dev[0].request("DPP_NFC_HANDOVER_SEL own=%d uri=%s" % (id0, uri1))
+    if "FAIL" in res:
+        raise Exception("Failed to process NFC Handover Select")
+    peer = int(res)
+
+    conf_id = dev[0].dpp_configurator_add()
+    dev[0].dpp_auth_init(peer=peer, own=id0, configurator=conf_id,
+                         conf="sta-dpp")
+    wait_auth_success(dev[1], dev[0], configurator=dev[0], enrollee=dev[1])
 
 def test_dpp_with_p2p_device(dev, apdev):
     """DPP exchange when driver uses a separate P2P Device interface"""
