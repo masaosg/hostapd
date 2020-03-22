@@ -1070,6 +1070,13 @@ struct wpa_ssid {
 	 * enabled.
 	 */
 	int beacon_prot;
+
+	/**
+	 * force_connect - Whether WPA_Supplicant should force connect to given station if freq-based MITM attacks were detected.
+	 * 0 = do not try to connect if detected.
+	 * 1 = try to connect even if detected.
+	 */
+	int force_connect;
 };
 
 #endif /* CONFIG_SSID_H */

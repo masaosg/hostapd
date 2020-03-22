@@ -2577,6 +2577,7 @@ static const struct parse_data ssid_fields[] = {
 	{ INT_RANGE(multi_ap_backhaul_sta, 0, 1) },
 	{ INT_RANGE(ft_eap_pmksa_caching, 0, 1) },
 	{ INT_RANGE(beacon_prot, 0, 1) },
+	{ INT_RANGE(force_connect, 0, 1) },
 };
 
 #undef OFFSET
@@ -3079,6 +3080,7 @@ void wpa_config_set_network_defaults(struct wpa_ssid *ssid)
 #endif /* CONFIG_MACSEC */
 	ssid->mac_addr = -1;
 	ssid->max_oper_chwidth = DEFAULT_MAX_OPER_CHWIDTH;
+	ssid->force_connect = 0;
 }
 
 

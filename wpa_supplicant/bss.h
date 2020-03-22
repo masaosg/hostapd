@@ -104,6 +104,7 @@ struct wpa_bss {
 	/** Signal-to-noise ratio in dB */
 	int snr;
 	/** ANQP data */
+	unsigned short prob_mitm;
 	struct wpa_bss_anqp *anqp;
 	/** Length of the following IE field in octets (from Probe Response) */
 	size_t ie_len;

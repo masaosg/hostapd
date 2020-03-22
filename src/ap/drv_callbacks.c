@@ -1329,6 +1329,30 @@ static int hostapd_mgmt_rx(struct hostapd_data *hapd, struct rx_mgmt *rx_mgmt)
 			return 0;
 	}
 
+	/*
+	struct wpa_driver_scan_params params;
+	os_memset(&params, 0, sizeof(params));
+
+	int res = hostapd_driver_scan(iface->bss[0], &params);
+
+	printf("SCAN Result: %d\n", res);
+
+	if (res == 0)
+	{
+		struct wpa_scan_results *scan_res;
+		scan_res = hostapd_driver_get_scan_results(iface->bss[0]);
+
+		if (scan_res != NULL) {
+			for (int i = 0; i < scan_res->num; i++) {
+				struct wpa_scan_res *bss = scan_res->res[i];
+				char macStr[18];
+				
+				snprintf(macStr, sizeof(macStr), MACSTR, MAC2STR(bss->bssid));
+				printf("BSSID: %s, Freq: %d\n", macStr, bss->freq);
+			}
+		}
+	}*/
+			
 	os_memset(&fi, 0, sizeof(fi));
 	fi.freq = rx_mgmt->freq;
 	fi.datarate = rx_mgmt->datarate;

@@ -4885,6 +4885,31 @@ int ieee802_11_mgmt(struct hostapd_data *hapd, const u8 *buf, size_t len,
 
 	switch (stype) {
 	case WLAN_FC_STYPE_AUTH:
+		/*
+		struct wpa_driver_scan_params params;
+		struct hostapd_iface *iface = hapd->iface;
+		os_memset(&params, 0, sizeof(params));
+
+		int res = hostapd_driver_scan(iface->bss[0], &params);
+
+		printf("SCAN Result: %d\n", res);
+
+		if (res == 0)
+		{
+			struct wpa_scan_results *scan_res;
+			scan_res = hostapd_driver_get_scan_results(iface->bss[0]);
+
+			if (scan_res != NULL) {
+				for (int i = 0; i < scan_res->num; i++) {
+					struct wpa_scan_res *bss = scan_res->res[i];
+					char macStr[18];
+					
+					snprintf(macStr, sizeof(macStr), MACSTR, MAC2STR(bss->bssid));
+					printf("BSSID: %s, Freq: %d\n", macStr, bss->freq);
+				}
+			}
+		}
+		*/
 		wpa_printf(MSG_DEBUG, "mgmt::auth");
 		handle_auth(hapd, mgmt, len, ssi_signal, 0);
 		ret = 1;

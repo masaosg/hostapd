@@ -2945,6 +2945,12 @@ static int wpa_supplicant_ctrl_iface_scan_result(
 	if (os_snprintf_error(end - pos, ret))
 		return -1;
 	pos += ret;
+
+	ret = os_snprintf(pos, end - pos, "%s\t", bss->prob_mitm ? "[MITM]" : "[SAFE]");
+	if (os_snprintf_error(end - pos, ret))
+		return -1;
+	pos += ret;
+
 	ie = wpa_bss_get_vendor_ie(bss, WPA_IE_VENDOR_TYPE);
 	if (ie)
 		pos = wpa_supplicant_ie_txt(pos, end, "WPA", ie, 2 + ie[1]);

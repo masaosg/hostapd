@@ -326,6 +326,14 @@ static void ieee80211n_check_scan(struct hostapd_iface *iface)
 		return;
 	}
 
+	for (int i = 0; i < scan_res->num; i++) {
+		struct wpa_scan_res *bss = scan_res->res[i];
+		char macStr[18];
+		
+		snprintf(macStr, sizeof(macStr), MACSTR, MAC2STR(bss->bssid));
+		printf("BSSID: %s, Freq: %d\n", macStr, bss->freq);
+	}
+
 	if (iface->current_mode->mode == HOSTAPD_MODE_IEEE80211A)
 		oper40 = ieee80211n_check_40mhz_5g(iface, scan_res);
 	else

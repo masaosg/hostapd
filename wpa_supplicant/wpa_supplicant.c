@@ -2101,6 +2101,17 @@ void wpa_supplicant_associate(struct wpa_supplicant *wpa_s,
 	wpa_s->testing_resend_assoc = 0;
 #endif /* CONFIG_TESTING_OPTIONS */
 
+	if (bss->prob_mitm) {
+		wpa_msg(wpa_s, MSG_WARNING, "This BSS " MACSTR " cannot be connected safely! (MITM attack was detected)", MAC2STR(bss->bssid));
+		if(ssid->force_connect) {
+			wpa_msg(wpa_s, MSG_WARNING, "Force connecting to BSS " MACSTR " because 'force_connect' is set to 1.", MAC2STR(bss->bssid));
+		} else {
+			wpa_msg(wpa_s, MSG_INFO, "If you want to force connect to BSS " MACSTR " , set configuration param 'force_connect' to 1.", MAC2STR(bss->bssid));
+			wpa_supplicant_set_state(wpa_s, WPA_DISCONNECTED);
+			return;
+		}
+	}
+
 	if (wpa_s->last_ssid == ssid) {
 		wpa_dbg(wpa_s, MSG_DEBUG, "Re-association to the same ESS");
 		wpa_s->reassoc_same_ess = 1;
